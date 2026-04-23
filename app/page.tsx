@@ -15,9 +15,9 @@ import {
   CartesianGrid,
 } from "recharts";
 
-const SHEET_ID = "1XyyvEKkl-Cm7gVwuZeLK7LtFkZXUr0metEMz_ofpydQ";
-const API_KEY = "AIzaSyA64OZ6QcN-ATjahTUBLzmv-tItmXV8I0I";
-const RANGE = "'feuille1'!A:N";
+const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID || "";
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
+const RANGE = "A:Z";
 
 const BRAND = {
   red: "#cf2e2e",
@@ -26,6 +26,8 @@ const BRAND = {
   green: "#16a34a",
   greenDark: "#166534",
   greenSoft: "#eefbf3",
+  orange: "#f59e0b",
+  orangeSoft: "#fff7ed",
   text: "#1f2937",
   subtext: "#64748b",
   bg: "#f5f6f8",
@@ -33,6 +35,7 @@ const BRAND = {
   border: "#e5e7eb",
   dark: "#111827",
   gray: "#6b7280",
+  grayLight: "#9ca3af",
 };
 
 type Stats = {
@@ -53,6 +56,12 @@ type FeedbackRow = {
   motif: string;
   statut: string;
   dateFin: string;
+};
+
+type DailyAverageRow = {
+  date: string;
+  moyenne: number;
+  sortDate: Date;
 };
 
 const initialStats: Stats = {
@@ -116,6 +125,20 @@ function formatDayKey(date: Date) {
   return `${dd}/${mm}/${yyyy}`;
 }
 
+function formatInputDate(date: Date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseInputDate(value: string): Date | null {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
 function isRowEmpty(row: string[]) {
   return !row.some((cell) => normalizeText(cell) !== "");
 }
@@ -125,7 +148,7 @@ function buildData(data: string[][]) {
     return {
       stats: initialStats,
       feedbackRows: [] as FeedbackRow[],
-      dailyAverage: [] as { date: string; moyenne: number }[],
+      dailyAverage: [] as DailyAverageRow[],
       motifs: [] as string[],
     };
   }
@@ -214,10 +237,13 @@ function buildData(data: string[][]) {
     .map(([date, value]) => ({
       date,
       moyenne: Number((value.sum / value.count).toFixed(2)),
-      sortDate: value.sortDate,
+      sortDate: new Date(
+        value.sortDate.getFullYear(),
+        value.sortDate.getMonth(),
+        value.sortDate.getDate()
+      ),
     }))
-    .sort((a, b) => a.sortDate.getTime() - b.sortDate.getTime())
-    .map(({ date, moyenne }) => ({ date, moyenne }));
+    .sort((a, b) => a.sortDate.getTime() - b.sortDate.getTime());
 
   const motifs = Array.from(motifsSet).sort((a, b) => a.localeCompare(b));
 
@@ -232,16 +258,32 @@ function matchesNoteFilter(note: number | null, filter: string) {
   return String(note) === filter;
 }
 
+function subtractMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() - months, date.getDate());
+}
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function endOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
 export default function Page() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [stats, setStats] = useState<Stats>(initialStats);
   const [feedbackRows, setFeedbackRows] = useState<FeedbackRow[]>([]);
-  const [dailyAverage, setDailyAverage] = useState<{ date: string; moyenne: number }[]>([]);
+  const [dailyAverage, setDailyAverage] = useState<DailyAverageRow[]>([]);
   const [motifs, setMotifs] = useState<string[]>([]);
 
   const [noteFilter, setNoteFilter] = useState("all");
   const [motifFilter, setMotifFilter] = useState("all");
+
+  const [periodFilter, setPeriodFilter] = useState("30d");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
 
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval>;
@@ -319,12 +361,43 @@ export default function Page() {
     return filteredRows.filter((row) => row.note !== null && row.note >= 4 && row.note <= 5);
   }, [filteredRows]);
 
+  const filteredDailyAverage = useMemo(() => {
+    if (!dailyAverage.length) return [];
+
+    const now = new Date();
+    let startDate: Date | null = null;
+    let endDate: Date | null = endOfDay(now);
+
+    if (periodFilter === "30d") startDate = startOfDay(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000));
+    if (periodFilter === "2m") startDate = startOfDay(subtractMonths(now, 2));
+    if (periodFilter === "3m") startDate = startOfDay(subtractMonths(now, 3));
+    if (periodFilter === "6m") startDate = startOfDay(subtractMonths(now, 6));
+    if (periodFilter === "1y") startDate = startOfDay(subtractMonths(now, 12));
+    if (periodFilter === "all") {
+      startDate = null;
+      endDate = null;
+    }
+
+    if (periodFilter === "custom") {
+      startDate = customStart ? startOfDay(parseInputDate(customStart) || new Date(0)) : null;
+      endDate = customEnd ? endOfDay(parseInputDate(customEnd) || now) : null;
+    }
+
+    return dailyAverage.filter((item) => {
+      const current = item.sortDate;
+      const afterStart = startDate ? current >= startDate : true;
+      const beforeEnd = endDate ? current <= endDate : true;
+      return afterStart && beforeEnd;
+    });
+  }, [dailyAverage, periodFilter, customStart, customEnd]);
+
   const COLORS = [
-  "#6b7280", // Envoyé (gris)
-  "#f59e0b", // Envoyé 2 (orange)
-  "#dc2626", // Pas de réponse (rouge)
-  "#16a34a", // Terminé (vert)
-];
+    BRAND.gray,    // Envoyé
+    BRAND.orange,  // Envoyé 2
+    BRAND.red,     // Pas de réponse
+    BRAND.green,   // Terminé
+  ];
+
   const formatPercent = (val: number) => `${(val * 100).toFixed(1)}%`;
   const formatNote = (val: number) => val.toFixed(2);
 
@@ -445,9 +518,58 @@ export default function Page() {
             <span style={miniInfoStyle}>Jour par jour</span>
           </div>
 
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "14px", marginBottom: "14px" }}>
+            {[
+              { key: "30d", label: "30 jours" },
+              { key: "2m", label: "2 mois" },
+              { key: "3m", label: "3 mois" },
+              { key: "6m", label: "6 mois" },
+              { key: "1y", label: "1 an" },
+              { key: "all", label: "Tout" },
+              { key: "custom", label: "Personnalisé" },
+            ].map((item) => (
+              <button
+                key={item.key}
+                onClick={() => setPeriodFilter(item.key)}
+                style={{
+                  ...periodButtonStyle,
+                  background: periodFilter === item.key ? BRAND.red : "#fff",
+                  color: periodFilter === item.key ? "#fff" : BRAND.text,
+                  borderColor: periodFilter === item.key ? BRAND.red : BRAND.border,
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          {periodFilter === "custom" && (
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
+              <div>
+                <label style={labelStyle}>Date début</label>
+                <input
+                  type="date"
+                  value={customStart}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                  style={selectStyle}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Date fin</label>
+                <input
+                  type="date"
+                  value={customEnd}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                  style={selectStyle}
+                />
+              </div>
+            </div>
+          )}
+
           <div style={{ width: "100%", height: 290, marginTop: "6px" }}>
             <ResponsiveContainer>
-              <LineChart data={dailyAverage}>
+              <LineChart data={filteredDailyAverage}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eceff3" />
                 <XAxis dataKey="date" tick={{ fill: BRAND.subtext, fontSize: 12 }} />
                 <YAxis domain={[0, 5]} tick={{ fill: BRAND.subtext, fontSize: 12 }} />
@@ -711,6 +833,15 @@ const selectStyle: React.CSSProperties = {
   background: "white",
   color: BRAND.text,
   outline: "none",
+};
+
+const periodButtonStyle: React.CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: "999px",
+  border: "1px solid",
+  cursor: "pointer",
+  fontWeight: 700,
+  fontSize: "13px",
 };
 
 const thStyle: React.CSSProperties = {
