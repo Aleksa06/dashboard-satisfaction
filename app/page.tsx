@@ -162,9 +162,12 @@ function getWeekStart(date: Date) {
   return startOfDay(d);
 }
 
-function formatWeekKey(date: Date) {
-  const start = getWeekStart(date);
-  return `Sem. ${formatDayKey(start)}`;
+function getISOWeek(date: Date) {
+  const temp = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = temp.getUTCDay() || 7;
+  temp.setUTCDate(temp.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(temp.getUTCFullYear(), 0, 1));
+  return Math.ceil((((temp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 }
 
 function isRowEmpty(row: string[]) {
@@ -247,14 +250,6 @@ function buildData(data: string[][]) {
   return { stats, feedbackRows, motifs };
 }
 
-function matchesNoteFilter(note: number | null, filter: string) {
-  if (filter === "all") return true;
-  if (note === null) return false;
-  if (filter === "1-3") return note >= 1 && note <= 3;
-  if (filter === "4-5") return note >= 4 && note <= 5;
-  return String(note) === filter;
-}
-
 function buildChartData(
   rows: FeedbackRow[],
   periodFilter: string,
@@ -301,13 +296,19 @@ function buildChartData(
 
   let granularity: "day" | "week" | "month" = "day";
 
-  if (startDate && endDate) {
-    const days = diffInDays(startDate, endDate);
-    if (days <= 45) granularity = "day";
-    else if (days <= 180) granularity = "week";
-    else granularity = "month";
-  } else {
+  if (periodFilter === "30d" || periodFilter === "2m" || periodFilter === "3m") {
+    granularity = "day";
+  } else if (periodFilter === "6m" || periodFilter === "1y") {
+    granularity = "week";
+  } else if (periodFilter === "all") {
     granularity = "month";
+  } else if (periodFilter === "custom") {
+    if (startDate && endDate) {
+      const days = diffInDays(startDate, endDate);
+      if (days <= 90) granularity = "day";
+      else if (days <= 370) granularity = "week";
+      else granularity = "month";
+    }
   }
 
   const grouped = new Map<string, { sum: number; count: number; sortDate: Date }>();
@@ -323,7 +324,9 @@ function buildChartData(
       key = formatDayKey(parsedDate);
       sortDate = startOfDay(parsedDate);
     } else if (granularity === "week") {
-      key = formatWeekKey(parsedDate);
+      const week = getISOWeek(parsedDate);
+      const year = parsedDate.getFullYear();
+      key = `S${String(week).padStart(2, "0")} - ${year}`;
       sortDate = getWeekStart(parsedDate);
     } else {
       key = formatMonthKey(parsedDate);
@@ -465,10 +468,10 @@ export default function Page() {
   }, [feedbackRows, periodFilter, customStart, customEnd]);
 
   const COLORS = [
-    BRAND.gray,
-    BRAND.orange,
-    BRAND.red,
-    BRAND.green,
+    "#6b7280", // Envoyé
+    "#f59e0b", // Envoyé 2
+    "#dc2626", // Pas de réponse
+    "#16a34a", // Terminé
   ];
 
   const formatPercent = (val: number) => `${(val * 100).toFixed(1)}%`;
@@ -550,12 +553,26 @@ export default function Page() {
           <div style={{ width: "100%", height: 360 }}>
             <ResponsiveContainer>
               <PieChart>
-                <Pie data={pieData} dataKey="value" outerRadius={124} label>
+                <Pie
+                  data={pieData}
+                  dataKey="value"
+                  outerRadius={124}
+                  label={({ name, value, percent }) =>
+                    `${name}: ${value} (${((percent || 0) * 100).toFixed(0)}%)`
+                  }
+                  labelLine={true}
+                >
                   {pieData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip
+                  formatter={(value: number, name: string) => {
+                    const total = pieData.reduce((sum, item) => sum + item.value, 0);
+                    const pct = total > 0 ? ((value / total) * 100).toFixed(1) : "0.0";
+                    return [`${value} (${pct}%)`, name];
+                  }}
+                />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
@@ -564,7 +581,7 @@ export default function Page() {
 
         <section style={panelStyle}>
           <div style={panelTitleRowStyle}>
-            <h2 style={panelTitleStyle}>Moyenne des notes</h2>
+            <h2 style={panelTitleStyle}>Évolution de la satisfaction</h2>
             <span style={miniInfoStyle}>{chartResult.granularityLabel}</span>
           </div>
 
@@ -617,7 +634,7 @@ export default function Page() {
             </div>
           )}
 
-          <div style={{ width: "100%", height: 360, marginTop: "6px" }}>
+          <div style={{ width: "100%", height: 360 }}>
             {chartResult.data.length === 0 ? (
               <div
                 style={{
@@ -903,15 +920,6 @@ const miniInfoStyle: React.CSSProperties = {
   borderRadius: "999px",
   background: "#f1f5f9",
   color: BRAND.subtext,
-  fontSize: "12px",
-  fontWeight: 700,
-};
-
-const sectionPillStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  borderRadius: "999px",
-  background: BRAND.redSoft,
-  color: BRAND.redDark,
   fontSize: "12px",
   fontWeight: 700,
 };
