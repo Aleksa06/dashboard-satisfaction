@@ -27,7 +27,6 @@ const BRAND = {
   greenDark: "#166534",
   greenSoft: "#eefbf3",
   orange: "#f59e0b",
-  orangeSoft: "#fff7ed",
   text: "#1f2937",
   subtext: "#64748b",
   bg: "#f5f6f8",
@@ -35,7 +34,6 @@ const BRAND = {
   border: "#e5e7eb",
   dark: "#111827",
   gray: "#6b7280",
-  grayLight: "#9ca3af",
 };
 
 type Stats = {
@@ -121,6 +119,12 @@ function parseFrenchDateTime(raw: string): Date | null {
 function formatDayKey(date: Date) {
   const dd = String(date.getDate()).padStart(2, "0");
   const mm = String(date.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}`;
+}
+
+function formatFullDayKey(date: Date) {
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
   const yyyy = date.getFullYear();
   return `${dd}/${mm}/${yyyy}`;
 }
@@ -146,28 +150,20 @@ function endOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
 }
 
-function subtractMonths(date: Date, months: number) {
-  return new Date(date.getFullYear(), date.getMonth() - months, date.getDate());
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
 }
 
-function diffInDays(start: Date, end: Date) {
-  return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+function endOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
 }
 
-function getWeekStart(date: Date) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return startOfDay(d);
+function startOfYear(date: Date) {
+  return new Date(date.getFullYear(), 0, 1, 0, 0, 0, 0);
 }
 
-function getISOWeek(date: Date) {
-  const temp = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = temp.getUTCDay() || 7;
-  temp.setUTCDate(temp.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(temp.getUTCFullYear(), 0, 1));
-  return Math.ceil((((temp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+function endOfYear(date: Date) {
+  return new Date(date.getFullYear(), 11, 31, 23, 59, 59, 999);
 }
 
 function isRowEmpty(row: string[]) {
@@ -259,24 +255,21 @@ function buildChartData(
   const now = new Date();
 
   let startDate: Date | null = null;
-  let endDate: Date | null = endOfDay(now);
+  let endDate: Date | null = null;
+  let granularity: "day" | "month" = "day";
 
-  if (periodFilter === "30d") {
-    startDate = startOfDay(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000));
-  } else if (periodFilter === "2m") {
-    startDate = startOfDay(subtractMonths(now, 2));
-  } else if (periodFilter === "3m") {
-    startDate = startOfDay(subtractMonths(now, 3));
-  } else if (periodFilter === "6m") {
-    startDate = startOfDay(subtractMonths(now, 6));
-  } else if (periodFilter === "1y") {
-    startDate = startOfDay(subtractMonths(now, 12));
-  } else if (periodFilter === "all") {
-    startDate = null;
-    endDate = null;
-  } else if (periodFilter === "custom") {
+  if (periodFilter === "month") {
+    startDate = startOfMonth(now);
+    endDate = endOfMonth(now);
+    granularity = "day";
+  } else if (periodFilter === "year") {
+    startDate = startOfYear(now);
+    endDate = endOfYear(now);
+    granularity = "month";
+  } else {
     startDate = customStart ? startOfDay(parseInputDate(customStart) || new Date(0)) : null;
     endDate = customEnd ? endOfDay(parseInputDate(customEnd) || now) : null;
+    granularity = "day";
   }
 
   const filtered = rows.filter((row) => {
@@ -291,24 +284,15 @@ function buildChartData(
   });
 
   if (!filtered.length) {
-    return { data: [] as ChartRow[], granularityLabel: "Aucune donnée" };
-  }
-
-  let granularity: "day" | "week" | "month" = "day";
-
-  if (periodFilter === "30d" || periodFilter === "2m" || periodFilter === "3m") {
-    granularity = "day";
-  } else if (periodFilter === "6m" || periodFilter === "1y") {
-    granularity = "week";
-  } else if (periodFilter === "all") {
-    granularity = "month";
-  } else if (periodFilter === "custom") {
-    if (startDate && endDate) {
-      const days = diffInDays(startDate, endDate);
-      if (days <= 90) granularity = "day";
-      else if (days <= 370) granularity = "week";
-      else granularity = "month";
-    }
+    return {
+      data: [] as ChartRow[],
+      granularityLabel:
+        periodFilter === "year"
+          ? "Mois par mois"
+          : periodFilter === "month"
+          ? "Jour par jour"
+          : "Période personnalisée",
+    };
   }
 
   const grouped = new Map<string, { sum: number; count: number; sortDate: Date }>();
@@ -321,13 +305,8 @@ function buildChartData(
     let sortDate = startOfDay(parsedDate);
 
     if (granularity === "day") {
-      key = formatDayKey(parsedDate);
+      key = periodFilter === "custom" ? formatFullDayKey(parsedDate) : formatDayKey(parsedDate);
       sortDate = startOfDay(parsedDate);
-    } else if (granularity === "week") {
-      const week = getISOWeek(parsedDate);
-      const year = parsedDate.getFullYear();
-      key = `S${String(week).padStart(2, "0")} - ${year}`;
-      sortDate = getWeekStart(parsedDate);
     } else {
       key = formatMonthKey(parsedDate);
       sortDate = new Date(parsedDate.getFullYear(), parsedDate.getMonth(), 1);
@@ -355,11 +334,11 @@ function buildChartData(
     .sort((a, b) => a.sortDate.getTime() - b.sortDate.getTime());
 
   const granularityLabel =
-    granularity === "day"
+    periodFilter === "year"
+      ? "Mois par mois"
+      : periodFilter === "month"
       ? "Jour par jour"
-      : granularity === "week"
-      ? "Semaine par semaine"
-      : "Mois par mois";
+      : "Période personnalisée";
 
   return { data, granularityLabel };
 }
@@ -371,14 +350,30 @@ export default function Page() {
   const [feedbackRows, setFeedbackRows] = useState<FeedbackRow[]>([]);
   const [motifs, setMotifs] = useState<string[]>([]);
 
-  const [periodFilter, setPeriodFilter] = useState("30d");
+  const [periodFilter, setPeriodFilter] = useState("month");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
 
   const [lowNoteFilter, setLowNoteFilter] = useState("all");
   const [lowMotifFilter, setLowMotifFilter] = useState("all");
-
   const [highNoteFilter, setHighNoteFilter] = useState("all");
+
+  useEffect(() => {
+    const now = new Date();
+    const monthStart = startOfMonth(now);
+    const today = endOfDay(now);
+
+    setCustomStart(
+      `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-${String(
+        monthStart.getDate()
+      ).padStart(2, "0")}`
+    );
+    setCustomEnd(
+      `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
+        today.getDate()
+      ).padStart(2, "0")}`
+    );
+  }, []);
 
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval>;
@@ -412,7 +407,8 @@ export default function Page() {
     }
 
     loadData();
-    intervalId = setInterval(loadData, 60000);
+    const interval = setInterval(loadData, 60000);
+    intervalId = interval;
 
     return () => clearInterval(intervalId);
   }, []);
@@ -442,12 +438,8 @@ export default function Page() {
   const lowScoreRows = useMemo(() => {
     return feedbackRows.filter((row) => {
       if (row.note === null || row.note < 1 || row.note > 3) return false;
-
-      const noteOk =
-        lowNoteFilter === "all" ? true : String(row.note) === lowNoteFilter;
-      const motifOk =
-        lowMotifFilter === "all" ? true : row.motif === lowMotifFilter;
-
+      const noteOk = lowNoteFilter === "all" ? true : String(row.note) === lowNoteFilter;
+      const motifOk = lowMotifFilter === "all" ? true : row.motif === lowMotifFilter;
       return noteOk && motifOk;
     });
   }, [feedbackRows, lowNoteFilter, lowMotifFilter]);
@@ -455,10 +447,7 @@ export default function Page() {
   const highScoreRows = useMemo(() => {
     return feedbackRows.filter((row) => {
       if (row.note === null || row.note < 4 || row.note > 5) return false;
-
-      const noteOk =
-        highNoteFilter === "all" ? true : String(row.note) === highNoteFilter;
-
+      const noteOk = highNoteFilter === "all" ? true : String(row.note) === highNoteFilter;
       return noteOk;
     });
   }, [feedbackRows, highNoteFilter]);
@@ -467,13 +456,7 @@ export default function Page() {
     return buildChartData(feedbackRows, periodFilter, customStart, customEnd);
   }, [feedbackRows, periodFilter, customStart, customEnd]);
 
-  const COLORS = [
-    "#6b7280", // Envoyé
-    "#f59e0b", // Envoyé 2
-    "#dc2626", // Pas de réponse
-    "#16a34a", // Terminé
-  ];
-
+  const COLORS = ["#6b7280", "#f59e0b", "#dc2626", "#16a34a"];
   const formatPercent = (val: number) => `${(val * 100).toFixed(1)}%`;
   const formatNote = (val: number) => val.toFixed(2);
 
@@ -557,8 +540,8 @@ export default function Page() {
                   data={pieData}
                   dataKey="value"
                   outerRadius={124}
-                  label={({ name, value, percent }) =>
-                    `${name}: ${value} (${((percent || 0) * 100).toFixed(0)}%)`
+                  label={({ value, percent }) =>
+                    `${value} (${((percent || 0) * 100).toFixed(0)}%)`
                   }
                   labelLine={true}
                 >
@@ -570,10 +553,17 @@ export default function Page() {
                   formatter={(value: number, name: string) => {
                     const total = pieData.reduce((sum, item) => sum + item.value, 0);
                     const pct = total > 0 ? ((value / total) * 100).toFixed(1) : "0.0";
-                    return [`${value} (${pct}%)`, name];
+                    return [`${value} soit ${pct}%`, name];
                   }}
                 />
-                <Legend />
+                <Legend
+                  formatter={(value) => {
+                    const item = pieData.find((d) => d.name === value);
+                    const total = pieData.reduce((sum, d) => sum + d.value, 0);
+                    const pct = item && total > 0 ? ((item.value / total) * 100).toFixed(0) : "0";
+                    return `${value} (${pct}%)`;
+                  }}
+                />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -587,12 +577,8 @@ export default function Page() {
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "14px", marginBottom: "14px" }}>
             {[
-              { key: "30d", label: "30 jours" },
-              { key: "2m", label: "2 mois" },
-              { key: "3m", label: "3 mois" },
-              { key: "6m", label: "6 mois" },
-              { key: "1y", label: "1 an" },
-              { key: "all", label: "Tout" },
+              { key: "month", label: "Mois" },
+              { key: "year", label: "Année" },
               { key: "custom", label: "Personnalisé" },
             ].map((item) => (
               <button
