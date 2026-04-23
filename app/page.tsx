@@ -550,12 +550,13 @@ export default function Page() {
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(value: number, name: string) => {
-                    const total = pieData.reduce((sum, item) => sum + item.value, 0);
-                    const pct = total > 0 ? ((value / total) * 100).toFixed(1) : "0.0";
-                    return [`${value} soit ${pct}%`, name];
-                  }}
-                />
+  formatter={(value, name) => {
+    const numericValue = typeof value === "number" ? value : Number(value ?? 0);
+    const total = pieData.reduce((sum, item) => sum + item.value, 0);
+    const pct = total > 0 ? ((numericValue / total) * 100).toFixed(1) : "0.0";
+    return [`${numericValue} soit ${pct}%`, String(name)];
+  }}
+/>
                 <Legend
                   formatter={(value) => {
                     const item = pieData.find((d) => d.name === value);
