@@ -58,6 +58,12 @@ type FeedbackRow = {
   dateFin: string;
 };
 
+type ChartRow = {
+  label: string;
+  moyenne: number;
+  sortDate: Date;
+};
+
 const initialStats: Stats = {
   total: 0,
   aEnvoyer: 0,
@@ -119,6 +125,12 @@ function formatDayKey(date: Date) {
   return `${dd}/${mm}/${yyyy}`;
 }
 
+function formatMonthKey(date: Date) {
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  return `${mm}/${yyyy}`;
+}
+
 function parseInputDate(value: string): Date | null {
   if (!value) return null;
   const [year, month, day] = value.split("-").map(Number);
@@ -136,6 +148,23 @@ function endOfDay(date: Date) {
 
 function subtractMonths(date: Date, months: number) {
   return new Date(date.getFullYear(), date.getMonth() - months, date.getDate());
+}
+
+function diffInDays(start: Date, end: Date) {
+  return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function getWeekStart(date: Date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return startOfDay(d);
+}
+
+function formatWeekKey(date: Date) {
+  const start = getWeekStart(date);
+  return `Sem. ${formatDayKey(start)}`;
 }
 
 function isRowEmpty(row: string[]) {
@@ -226,6 +255,112 @@ function matchesNoteFilter(note: number | null, filter: string) {
   return String(note) === filter;
 }
 
+function buildChartData(
+  rows: FeedbackRow[],
+  periodFilter: string,
+  customStart: string,
+  customEnd: string
+) {
+  const now = new Date();
+
+  let startDate: Date | null = null;
+  let endDate: Date | null = endOfDay(now);
+
+  if (periodFilter === "30d") {
+    startDate = startOfDay(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000));
+  } else if (periodFilter === "2m") {
+    startDate = startOfDay(subtractMonths(now, 2));
+  } else if (periodFilter === "3m") {
+    startDate = startOfDay(subtractMonths(now, 3));
+  } else if (periodFilter === "6m") {
+    startDate = startOfDay(subtractMonths(now, 6));
+  } else if (periodFilter === "1y") {
+    startDate = startOfDay(subtractMonths(now, 12));
+  } else if (periodFilter === "all") {
+    startDate = null;
+    endDate = null;
+  } else if (periodFilter === "custom") {
+    startDate = customStart ? startOfDay(parseInputDate(customStart) || new Date(0)) : null;
+    endDate = customEnd ? endOfDay(parseInputDate(customEnd) || now) : null;
+  }
+
+  const filtered = rows.filter((row) => {
+    if (row.note === null) return false;
+    const parsedDate = parseFrenchDateTime(row.dateFin);
+    if (!parsedDate) return false;
+
+    const afterStart = startDate ? parsedDate >= startDate : true;
+    const beforeEnd = endDate ? parsedDate <= endDate : true;
+
+    return afterStart && beforeEnd;
+  });
+
+  if (!filtered.length) {
+    return { data: [] as ChartRow[], granularityLabel: "Aucune donnée" };
+  }
+
+  let granularity: "day" | "week" | "month" = "day";
+
+  if (startDate && endDate) {
+    const days = diffInDays(startDate, endDate);
+    if (days <= 45) granularity = "day";
+    else if (days <= 180) granularity = "week";
+    else granularity = "month";
+  } else {
+    granularity = "month";
+  }
+
+  const grouped = new Map<string, { sum: number; count: number; sortDate: Date }>();
+
+  for (const row of filtered) {
+    const parsedDate = parseFrenchDateTime(row.dateFin);
+    if (!parsedDate || row.note === null) continue;
+
+    let key = "";
+    let sortDate = startOfDay(parsedDate);
+
+    if (granularity === "day") {
+      key = formatDayKey(parsedDate);
+      sortDate = startOfDay(parsedDate);
+    } else if (granularity === "week") {
+      key = formatWeekKey(parsedDate);
+      sortDate = getWeekStart(parsedDate);
+    } else {
+      key = formatMonthKey(parsedDate);
+      sortDate = new Date(parsedDate.getFullYear(), parsedDate.getMonth(), 1);
+    }
+
+    const current = grouped.get(key);
+    if (current) {
+      current.sum += row.note;
+      current.count += 1;
+    } else {
+      grouped.set(key, {
+        sum: row.note,
+        count: 1,
+        sortDate,
+      });
+    }
+  }
+
+  const data = Array.from(grouped.entries())
+    .map(([label, value]) => ({
+      label,
+      moyenne: Number((value.sum / value.count).toFixed(2)),
+      sortDate: value.sortDate,
+    }))
+    .sort((a, b) => a.sortDate.getTime() - b.sortDate.getTime());
+
+  const granularityLabel =
+    granularity === "day"
+      ? "Jour par jour"
+      : granularity === "week"
+      ? "Semaine par semaine"
+      : "Mois par mois";
+
+  return { data, granularityLabel };
+}
+
 export default function Page() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -233,12 +368,14 @@ export default function Page() {
   const [feedbackRows, setFeedbackRows] = useState<FeedbackRow[]>([]);
   const [motifs, setMotifs] = useState<string[]>([]);
 
-  const [noteFilter, setNoteFilter] = useState("all");
-  const [motifFilter, setMotifFilter] = useState("all");
-
   const [periodFilter, setPeriodFilter] = useState("30d");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+
+  const [lowNoteFilter, setLowNoteFilter] = useState("all");
+  const [lowMotifFilter, setLowMotifFilter] = useState("all");
+
+  const [highNoteFilter, setHighNoteFilter] = useState("all");
 
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval>;
@@ -299,94 +436,39 @@ export default function Page() {
     ].filter((item) => item.value > 0);
   }, [stats]);
 
-  const filteredRows = useMemo(() => {
+  const lowScoreRows = useMemo(() => {
     return feedbackRows.filter((row) => {
-      const noteOk = matchesNoteFilter(row.note, noteFilter);
-      const motifOk = motifFilter === "all" ? true : row.motif === motifFilter;
+      if (row.note === null || row.note < 1 || row.note > 3) return false;
+
+      const noteOk =
+        lowNoteFilter === "all" ? true : String(row.note) === lowNoteFilter;
+      const motifOk =
+        lowMotifFilter === "all" ? true : row.motif === lowMotifFilter;
+
       return noteOk && motifOk;
     });
-  }, [feedbackRows, noteFilter, motifFilter]);
-
-  const lowScoreRows = useMemo(() => {
-    return filteredRows.filter((row) => row.note !== null && row.note >= 1 && row.note <= 3);
-  }, [filteredRows]);
+  }, [feedbackRows, lowNoteFilter, lowMotifFilter]);
 
   const highScoreRows = useMemo(() => {
-    return filteredRows.filter((row) => row.note !== null && row.note >= 4 && row.note <= 5);
-  }, [filteredRows]);
+    return feedbackRows.filter((row) => {
+      if (row.note === null || row.note < 4 || row.note > 5) return false;
 
-  const filteredDailyAverage = useMemo(() => {
-    const now = new Date();
+      const noteOk =
+        highNoteFilter === "all" ? true : String(row.note) === highNoteFilter;
 
-    let startDate: Date | null = null;
-    let endDate: Date | null = endOfDay(now);
-
-    if (periodFilter === "30d") {
-      startDate = startOfDay(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000));
-    } else if (periodFilter === "2m") {
-      startDate = startOfDay(subtractMonths(now, 2));
-    } else if (periodFilter === "3m") {
-      startDate = startOfDay(subtractMonths(now, 3));
-    } else if (periodFilter === "6m") {
-      startDate = startOfDay(subtractMonths(now, 6));
-    } else if (periodFilter === "1y") {
-      startDate = startOfDay(subtractMonths(now, 12));
-    } else if (periodFilter === "all") {
-      startDate = null;
-      endDate = null;
-    } else if (periodFilter === "custom") {
-      startDate = customStart ? startOfDay(parseInputDate(customStart) || new Date(0)) : null;
-      endDate = customEnd ? endOfDay(parseInputDate(customEnd) || now) : null;
-    }
-
-    const filteredTermineRows = feedbackRows.filter((row) => {
-      if (row.note === null) return false;
-
-      const parsedDate = parseFrenchDateTime(row.dateFin);
-      if (!parsedDate) return false;
-
-      const afterStart = startDate ? parsedDate >= startDate : true;
-      const beforeEnd = endDate ? parsedDate <= endDate : true;
-
-      return afterStart && beforeEnd;
+      return noteOk;
     });
+  }, [feedbackRows, highNoteFilter]);
 
-    const grouped = new Map<string, { sum: number; count: number; sortDate: Date }>();
-
-    for (const row of filteredTermineRows) {
-      const parsedDate = parseFrenchDateTime(row.dateFin);
-      if (!parsedDate || row.note === null) continue;
-
-      const dayKey = formatDayKey(parsedDate);
-      const normalizedDay = startOfDay(parsedDate);
-
-      const current = grouped.get(dayKey);
-      if (current) {
-        current.sum += row.note;
-        current.count += 1;
-      } else {
-        grouped.set(dayKey, {
-          sum: row.note,
-          count: 1,
-          sortDate: normalizedDay,
-        });
-      }
-    }
-
-    return Array.from(grouped.entries())
-      .map(([date, value]) => ({
-        date,
-        moyenne: Number((value.sum / value.count).toFixed(2)),
-        sortDate: value.sortDate,
-      }))
-      .sort((a, b) => a.sortDate.getTime() - b.sortDate.getTime());
+  const chartResult = useMemo(() => {
+    return buildChartData(feedbackRows, periodFilter, customStart, customEnd);
   }, [feedbackRows, periodFilter, customStart, customEnd]);
 
   const COLORS = [
-    BRAND.gray,   // Envoyé
-    BRAND.orange, // Envoyé 2
-    BRAND.red,    // Pas de réponse
-    BRAND.green,  // Terminé
+    BRAND.gray,
+    BRAND.orange,
+    BRAND.red,
+    BRAND.green,
   ];
 
   const formatPercent = (val: number) => `${(val * 100).toFixed(1)}%`;
@@ -454,7 +536,7 @@ export default function Page() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1.1fr 1fr",
+          gridTemplateColumns: "0.95fr 1.35fr",
           gap: "22px",
           marginBottom: "22px",
           alignItems: "stretch",
@@ -462,51 +544,28 @@ export default function Page() {
       >
         <section style={panelStyle}>
           <div style={panelTitleRowStyle}>
-            <h2 style={panelTitleStyle}>Filtres d’analyse</h2>
-            <span style={sectionPillStyle}>Lignes terminées uniquement</span>
+            <h2 style={panelTitleStyle}>Suivi des enquêtes envoyées</h2>
           </div>
 
-          <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", marginTop: "10px" }}>
-            <div>
-              <label style={labelStyle}>Filtre note</label>
-              <select
-                value={noteFilter}
-                onChange={(e) => setNoteFilter(e.target.value)}
-                style={selectStyle}
-              >
-                <option value="all">Toutes les notes</option>
-                <option value="1-3">Notes 1 à 3</option>
-                <option value="4-5">Notes 4 à 5</option>
-                <option value="1">Note 1</option>
-                <option value="2">Note 2</option>
-                <option value="3">Note 3</option>
-                <option value="4">Note 4</option>
-                <option value="5">Note 5</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={labelStyle}>Motif d&apos;insatisfaction</label>
-              <select
-                value={motifFilter}
-                onChange={(e) => setMotifFilter(e.target.value)}
-                style={selectStyle}
-              >
-                <option value="all">Tous les motifs</option>
-                {motifs.map((motif) => (
-                  <option key={motif} value={motif}>
-                    {motif}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div style={{ width: "100%", height: 360 }}>
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" outerRadius={124} label>
+                  {pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
         </section>
 
         <section style={panelStyle}>
           <div style={panelTitleRowStyle}>
-            <h2 style={panelTitleStyle}>Moyenne journalière des notes</h2>
-            <span style={miniInfoStyle}>Jour par jour</span>
+            <h2 style={panelTitleStyle}>Moyenne des notes</h2>
+            <span style={miniInfoStyle}>{chartResult.granularityLabel}</span>
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "14px", marginBottom: "14px" }}>
@@ -558,8 +617,8 @@ export default function Page() {
             </div>
           )}
 
-          <div style={{ width: "100%", height: 290, marginTop: "6px" }}>
-            {filteredDailyAverage.length === 0 ? (
+          <div style={{ width: "100%", height: 360, marginTop: "6px" }}>
+            {chartResult.data.length === 0 ? (
               <div
                 style={{
                   height: "100%",
@@ -576,9 +635,9 @@ export default function Page() {
               </div>
             ) : (
               <ResponsiveContainer>
-                <LineChart data={filteredDailyAverage}>
+                <LineChart data={chartResult.data}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#eceff3" />
-                  <XAxis dataKey="date" tick={{ fill: BRAND.subtext, fontSize: 12 }} />
+                  <XAxis dataKey="label" tick={{ fill: BRAND.subtext, fontSize: 12 }} />
                   <YAxis domain={[0, 5]} tick={{ fill: BRAND.subtext, fontSize: 12 }} />
                   <Tooltip />
                   <Line
@@ -599,67 +658,91 @@ export default function Page() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "390px 1fr",
+          gridTemplateColumns: "1fr 1fr",
           gap: "22px",
-          marginBottom: "22px",
           alignItems: "start",
         }}
       >
-        <section style={panelStyle}>
+        <section
+          style={{
+            ...panelStyle,
+            borderTop: `6px solid ${BRAND.red}`,
+            background: BRAND.card,
+          }}
+        >
           <div style={panelTitleRowStyle}>
-            <h2 style={panelTitleStyle}>Suivi des enquêtes envoyées</h2>
+            <h2 style={{ ...panelTitleStyle, color: BRAND.redDark }}>Notes 1 à 3</h2>
+            <span style={{ ...miniInfoStyle, background: BRAND.redSoft, color: BRAND.redDark }}>
+              Priorité de traitement
+            </span>
           </div>
 
-          <div style={{ width: "100%", height: 340 }}>
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie data={pieData} dataKey="value" outerRadius={118} label>
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginTop: "16px", marginBottom: "14px" }}>
+            <div>
+              <label style={labelStyle}>Filtre note</label>
+              <select
+                value={lowNoteFilter}
+                onChange={(e) => setLowNoteFilter(e.target.value)}
+                style={compactSelectStyle}
+              >
+                <option value="all">Toutes</option>
+                <option value="1">Note 1</option>
+                <option value="2">Note 2</option>
+                <option value="3">Note 3</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Motif d&apos;insatisfaction</label>
+              <select
+                value={lowMotifFilter}
+                onChange={(e) => setLowMotifFilter(e.target.value)}
+                style={compactSelectStyle}
+              >
+                <option value="all">Tous les motifs</option>
+                {motifs.map((motif) => (
+                  <option key={motif} value={motif}>
+                    {motif}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
+
+          <ScrollableFeedbackTable rows={lowScoreRows} showMotif variant="danger" />
         </section>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "22px" }}>
-          <section
-            style={{
-              ...panelStyle,
-              borderTop: `6px solid ${BRAND.red}`,
-              background: BRAND.card,
-            }}
-          >
-            <div style={panelTitleRowStyle}>
-              <h2 style={{ ...panelTitleStyle, color: BRAND.redDark }}>Notes 1 à 3</h2>
-              <span style={{ ...miniInfoStyle, background: BRAND.redSoft, color: BRAND.redDark }}>
-                Priorité de traitement
-              </span>
+        <section
+          style={{
+            ...panelStyle,
+            borderTop: `6px solid ${BRAND.green}`,
+            background: BRAND.card,
+          }}
+        >
+          <div style={panelTitleRowStyle}>
+            <h2 style={{ ...panelTitleStyle, color: BRAND.greenDark }}>Notes 4 à 5</h2>
+            <span style={{ ...miniInfoStyle, background: BRAND.greenSoft, color: BRAND.greenDark }}>
+              Feedback positif
+            </span>
+          </div>
+
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginTop: "16px", marginBottom: "14px" }}>
+            <div>
+              <label style={labelStyle}>Filtre note</label>
+              <select
+                value={highNoteFilter}
+                onChange={(e) => setHighNoteFilter(e.target.value)}
+                style={compactSelectStyle}
+              >
+                <option value="all">Toutes</option>
+                <option value="4">Note 4</option>
+                <option value="5">Note 5</option>
+              </select>
             </div>
+          </div>
 
-            <FeedbackTable rows={lowScoreRows} showMotif variant="danger" />
-          </section>
-
-          <section
-            style={{
-              ...panelStyle,
-              borderTop: `6px solid ${BRAND.green}`,
-              background: BRAND.card,
-            }}
-          >
-            <div style={panelTitleRowStyle}>
-              <h2 style={{ ...panelTitleStyle, color: BRAND.greenDark }}>Notes 4 à 5</h2>
-              <span style={{ ...miniInfoStyle, background: BRAND.greenSoft, color: BRAND.greenDark }}>
-                Feedback positif
-              </span>
-            </div>
-
-            <FeedbackTable rows={highScoreRows} showMotif={false} variant="success" />
-          </section>
-        </div>
+          <ScrollableFeedbackTable rows={highScoreRows} showMotif={false} variant="success" />
+        </section>
       </div>
     </main>
   );
@@ -677,7 +760,7 @@ function KpiCard({ title, value }: { title: string; value: string }) {
   );
 }
 
-function FeedbackTable({
+function ScrollableFeedbackTable({
   rows,
   showMotif,
   variant,
@@ -689,14 +772,22 @@ function FeedbackTable({
   const rowBg = variant === "danger" ? "#fff8f8" : "#f8fff9";
 
   return (
-    <div style={{ overflowX: "auto", marginTop: "8px" }}>
+    <div
+      style={{
+        marginTop: "8px",
+        maxHeight: "610px",
+        overflowY: "auto",
+        borderRadius: "14px",
+        border: `1px solid ${BRAND.border}`,
+      }}
+    >
       <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "14px" }}>
-        <thead>
+        <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
           <tr>
-            <th style={thStyle}>Date</th>
-            <th style={thStyle}>Note</th>
-            <th style={thStyle}>Commentaire</th>
-            {showMotif && <th style={thStyle}>Motif</th>}
+            <th style={{ ...thStyle, background: "#fff" }}>Date</th>
+            <th style={{ ...thStyle, background: "#fff" }}>Note</th>
+            <th style={{ ...thStyle, background: "#fff" }}>Commentaire</th>
+            {showMotif && <th style={{ ...thStyle, background: "#fff" }}>Motif</th>}
           </tr>
         </thead>
         <tbody>
@@ -704,7 +795,7 @@ function FeedbackTable({
             <tr>
               <td
                 colSpan={showMotif ? 4 : 3}
-                style={{ padding: "18px 10px", color: BRAND.subtext }}
+                style={{ padding: "18px 10px", color: BRAND.subtext, background: "#fff" }}
               >
                 Aucun résultat
               </td>
@@ -807,20 +898,20 @@ const panelTitleStyle: React.CSSProperties = {
   color: BRAND.text,
 };
 
-const sectionPillStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  borderRadius: "999px",
-  background: BRAND.redSoft,
-  color: BRAND.redDark,
-  fontSize: "12px",
-  fontWeight: 700,
-};
-
 const miniInfoStyle: React.CSSProperties = {
   padding: "7px 11px",
   borderRadius: "999px",
   background: "#f1f5f9",
   color: BRAND.subtext,
+  fontSize: "12px",
+  fontWeight: 700,
+};
+
+const sectionPillStyle: React.CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: "999px",
+  background: BRAND.redSoft,
+  color: BRAND.redDark,
   fontSize: "12px",
   fontWeight: 700,
 };
@@ -838,6 +929,16 @@ const selectStyle: React.CSSProperties = {
   borderRadius: "12px",
   border: `1px solid ${BRAND.border}`,
   minWidth: "230px",
+  background: "white",
+  color: BRAND.text,
+  outline: "none",
+};
+
+const compactSelectStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: "12px",
+  border: `1px solid ${BRAND.border}`,
+  minWidth: "180px",
   background: "white",
   color: BRAND.text,
   outline: "none",
