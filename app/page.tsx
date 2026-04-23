@@ -58,12 +58,6 @@ type FeedbackRow = {
   dateFin: string;
 };
 
-type DailyAverageRow = {
-  date: string;
-  moyenne: number;
-  sortDate: Date;
-};
-
 const initialStats: Stats = {
   total: 0,
   aEnvoyer: 0,
@@ -125,18 +119,23 @@ function formatDayKey(date: Date) {
   return `${dd}/${mm}/${yyyy}`;
 }
 
-function formatInputDate(date: Date) {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
 function parseInputDate(value: string): Date | null {
   if (!value) return null;
   const [year, month, day] = value.split("-").map(Number);
   if (!year || !month || !day) return null;
   return new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function endOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
+function subtractMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() - months, date.getDate());
 }
 
 function isRowEmpty(row: string[]) {
@@ -148,7 +147,6 @@ function buildData(data: string[][]) {
     return {
       stats: initialStats,
       feedbackRows: [] as FeedbackRow[],
-      dailyAverage: [] as DailyAverageRow[],
       motifs: [] as string[],
     };
   }
@@ -170,7 +168,6 @@ function buildData(data: string[][]) {
   const stats = { ...initialStats };
   const feedbackRows: FeedbackRow[] = [];
   const motifsSet = new Set<string>();
-  const dailyMap = new Map<string, { sum: number; count: number; sortDate: Date }>();
 
   for (const row of data.slice(1)) {
     if (isRowEmpty(row)) continue;
@@ -213,41 +210,12 @@ function buildData(data: string[][]) {
       });
 
       if (motif) motifsSet.add(motif);
-
-      const parsedDate = parseFrenchDateTime(dateFinRaw);
-      if (parsedDate && note !== null) {
-        const dayKey = formatDayKey(parsedDate);
-        const current = dailyMap.get(dayKey);
-
-        if (current) {
-          current.sum += note;
-          current.count += 1;
-        } else {
-          dailyMap.set(dayKey, {
-            sum: note,
-            count: 1,
-            sortDate: parsedDate,
-          });
-        }
-      }
     }
   }
 
-  const dailyAverage = Array.from(dailyMap.entries())
-    .map(([date, value]) => ({
-      date,
-      moyenne: Number((value.sum / value.count).toFixed(2)),
-      sortDate: new Date(
-        value.sortDate.getFullYear(),
-        value.sortDate.getMonth(),
-        value.sortDate.getDate()
-      ),
-    }))
-    .sort((a, b) => a.sortDate.getTime() - b.sortDate.getTime());
-
   const motifs = Array.from(motifsSet).sort((a, b) => a.localeCompare(b));
 
-  return { stats, feedbackRows, dailyAverage, motifs };
+  return { stats, feedbackRows, motifs };
 }
 
 function matchesNoteFilter(note: number | null, filter: string) {
@@ -258,24 +226,11 @@ function matchesNoteFilter(note: number | null, filter: string) {
   return String(note) === filter;
 }
 
-function subtractMonths(date: Date, months: number) {
-  return new Date(date.getFullYear(), date.getMonth() - months, date.getDate());
-}
-
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
-}
-
-function endOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
-}
-
 export default function Page() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [stats, setStats] = useState<Stats>(initialStats);
   const [feedbackRows, setFeedbackRows] = useState<FeedbackRow[]>([]);
-  const [dailyAverage, setDailyAverage] = useState<DailyAverageRow[]>([]);
   const [motifs, setMotifs] = useState<string[]>([]);
 
   const [noteFilter, setNoteFilter] = useState("all");
@@ -306,7 +261,6 @@ export default function Page() {
 
         setStats(built.stats);
         setFeedbackRows(built.feedbackRows);
-        setDailyAverage(built.dailyAverage);
         setMotifs(built.motifs);
         setError("");
       } catch (err: any) {
@@ -362,40 +316,77 @@ export default function Page() {
   }, [filteredRows]);
 
   const filteredDailyAverage = useMemo(() => {
-    if (!dailyAverage.length) return [];
-
     const now = new Date();
+
     let startDate: Date | null = null;
     let endDate: Date | null = endOfDay(now);
 
-    if (periodFilter === "30d") startDate = startOfDay(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000));
-    if (periodFilter === "2m") startDate = startOfDay(subtractMonths(now, 2));
-    if (periodFilter === "3m") startDate = startOfDay(subtractMonths(now, 3));
-    if (periodFilter === "6m") startDate = startOfDay(subtractMonths(now, 6));
-    if (periodFilter === "1y") startDate = startOfDay(subtractMonths(now, 12));
-    if (periodFilter === "all") {
+    if (periodFilter === "30d") {
+      startDate = startOfDay(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000));
+    } else if (periodFilter === "2m") {
+      startDate = startOfDay(subtractMonths(now, 2));
+    } else if (periodFilter === "3m") {
+      startDate = startOfDay(subtractMonths(now, 3));
+    } else if (periodFilter === "6m") {
+      startDate = startOfDay(subtractMonths(now, 6));
+    } else if (periodFilter === "1y") {
+      startDate = startOfDay(subtractMonths(now, 12));
+    } else if (periodFilter === "all") {
       startDate = null;
       endDate = null;
-    }
-
-    if (periodFilter === "custom") {
+    } else if (periodFilter === "custom") {
       startDate = customStart ? startOfDay(parseInputDate(customStart) || new Date(0)) : null;
       endDate = customEnd ? endOfDay(parseInputDate(customEnd) || now) : null;
     }
 
-    return dailyAverage.filter((item) => {
-      const current = item.sortDate;
-      const afterStart = startDate ? current >= startDate : true;
-      const beforeEnd = endDate ? current <= endDate : true;
+    const filteredTermineRows = feedbackRows.filter((row) => {
+      if (row.note === null) return false;
+
+      const parsedDate = parseFrenchDateTime(row.dateFin);
+      if (!parsedDate) return false;
+
+      const afterStart = startDate ? parsedDate >= startDate : true;
+      const beforeEnd = endDate ? parsedDate <= endDate : true;
+
       return afterStart && beforeEnd;
     });
-  }, [dailyAverage, periodFilter, customStart, customEnd]);
+
+    const grouped = new Map<string, { sum: number; count: number; sortDate: Date }>();
+
+    for (const row of filteredTermineRows) {
+      const parsedDate = parseFrenchDateTime(row.dateFin);
+      if (!parsedDate || row.note === null) continue;
+
+      const dayKey = formatDayKey(parsedDate);
+      const normalizedDay = startOfDay(parsedDate);
+
+      const current = grouped.get(dayKey);
+      if (current) {
+        current.sum += row.note;
+        current.count += 1;
+      } else {
+        grouped.set(dayKey, {
+          sum: row.note,
+          count: 1,
+          sortDate: normalizedDay,
+        });
+      }
+    }
+
+    return Array.from(grouped.entries())
+      .map(([date, value]) => ({
+        date,
+        moyenne: Number((value.sum / value.count).toFixed(2)),
+        sortDate: value.sortDate,
+      }))
+      .sort((a, b) => a.sortDate.getTime() - b.sortDate.getTime());
+  }, [feedbackRows, periodFilter, customStart, customEnd]);
 
   const COLORS = [
-    BRAND.gray,    // Envoyé
-    BRAND.orange,  // Envoyé 2
-    BRAND.red,     // Pas de réponse
-    BRAND.green,   // Terminé
+    BRAND.gray,   // Envoyé
+    BRAND.orange, // Envoyé 2
+    BRAND.red,    // Pas de réponse
+    BRAND.green,  // Terminé
   ];
 
   const formatPercent = (val: number) => `${(val * 100).toFixed(1)}%`;
@@ -568,22 +559,39 @@ export default function Page() {
           )}
 
           <div style={{ width: "100%", height: 290, marginTop: "6px" }}>
-            <ResponsiveContainer>
-              <LineChart data={filteredDailyAverage}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eceff3" />
-                <XAxis dataKey="date" tick={{ fill: BRAND.subtext, fontSize: 12 }} />
-                <YAxis domain={[0, 5]} tick={{ fill: BRAND.subtext, fontSize: 12 }} />
-                <Tooltip />
-                <Line
-                  type="monotone"
-                  dataKey="moyenne"
-                  stroke={BRAND.red}
-                  strokeWidth={3}
-                  dot={{ r: 4 }}
-                  activeDot={{ r: 6 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {filteredDailyAverage.length === 0 ? (
+              <div
+                style={{
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: BRAND.subtext,
+                  border: `1px dashed ${BRAND.border}`,
+                  borderRadius: "16px",
+                  background: "#fafafa",
+                }}
+              >
+                Aucune note terminée sur cette période
+              </div>
+            ) : (
+              <ResponsiveContainer>
+                <LineChart data={filteredDailyAverage}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eceff3" />
+                  <XAxis dataKey="date" tick={{ fill: BRAND.subtext, fontSize: 12 }} />
+                  <YAxis domain={[0, 5]} tick={{ fill: BRAND.subtext, fontSize: 12 }} />
+                  <Tooltip />
+                  <Line
+                    type="monotone"
+                    dataKey="moyenne"
+                    stroke={BRAND.red}
+                    strokeWidth={3}
+                    dot={{ r: 4 }}
+                    activeDot={{ r: 6 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </section>
       </div>
