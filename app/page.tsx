@@ -206,9 +206,9 @@ function buildData(data: string[][]) {
     const commentaire = normalizeText(row[commentaireIndex] || "");
     const motif = motifIndex !== -1 ? normalizeText(row[motifIndex] || "") : "";
     const dateFinRaw =
-      (dateStatutIndex !== -1 ? row[dateStatutIndex] : "") ||
-      (dateIndex !== -1 ? row[dateIndex] : "") ||
-      "";
+  (dateIndex !== -1 ? row[dateIndex] : "") ||
+  (dateStatutIndex !== -1 ? row[dateStatutIndex] : "") ||
+  "";
 
     stats.total++;
 
@@ -436,21 +436,33 @@ export default function Page() {
   }, [stats]);
 
   const lowScoreRows = useMemo(() => {
-    return feedbackRows.filter((row) => {
+  return feedbackRows
+    .filter((row) => {
       if (row.note === null || row.note < 1 || row.note > 3) return false;
       const noteOk = lowNoteFilter === "all" ? true : String(row.note) === lowNoteFilter;
       const motifOk = lowMotifFilter === "all" ? true : row.motif === lowMotifFilter;
       return noteOk && motifOk;
+    })
+    .sort((a, b) => {
+      const dateA = parseFrenchDateTime(a.dateFin);
+      const dateB = parseFrenchDateTime(b.dateFin);
+      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
     });
-  }, [feedbackRows, lowNoteFilter, lowMotifFilter]);
+}, [feedbackRows, lowNoteFilter, lowMotifFilter]);
 
-  const highScoreRows = useMemo(() => {
-    return feedbackRows.filter((row) => {
+const highScoreRows = useMemo(() => {
+  return feedbackRows
+    .filter((row) => {
       if (row.note === null || row.note < 4 || row.note > 5) return false;
       const noteOk = highNoteFilter === "all" ? true : String(row.note) === highNoteFilter;
       return noteOk;
+    })
+    .sort((a, b) => {
+      const dateA = parseFrenchDateTime(a.dateFin);
+      const dateB = parseFrenchDateTime(b.dateFin);
+      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
     });
-  }, [feedbackRows, highNoteFilter]);
+}, [feedbackRows, highNoteFilter]);
 
   const chartResult = useMemo(() => {
     return buildChartData(feedbackRows, periodFilter, customStart, customEnd);
