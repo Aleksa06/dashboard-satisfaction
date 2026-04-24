@@ -406,6 +406,7 @@ export default function Page() {
   const [lowNoteFilter, setLowNoteFilter] = useState("all");
   const [lowMotifFilter, setLowMotifFilter] = useState("all");
   const [highNoteFilter, setHighNoteFilter] = useState("all");
+  const [showResponseCount, setShowResponseCount] = useState(false);
   const [motifPeriodFilter, setMotifPeriodFilter] = useState("last30");
   const [motifCustomStart, setMotifCustomStart] = useState("");
   const [motifCustomEnd, setMotifCustomEnd] = useState("");
@@ -469,6 +470,8 @@ export default function Page() {
     const envoyes = stats.total - stats.aEnvoyer;
     return envoyes > 0 ? stats.termine / envoyes : 0;
   }, [stats]);
+
+  const envoyesReels = stats.total - stats.aEnvoyer;
 
   const moyenneNote = useMemo(() => {
     return stats.nbNotes > 0 ? stats.totalNotes / stats.nbNotes : 0;
@@ -596,7 +599,31 @@ const MOTIF_COLORS = [
         }}
       >
         <KpiCard title="Total enquêtes" value={String(stats.total)} />
-        <KpiCard title="Taux de réponse réel" value={formatPercent(tauxReponseReel)} />
+        <KpiCard
+  title="Taux de réponse réel"
+  value={
+    showResponseCount
+      ? `${stats.termine} / ${envoyesReels}`
+      : formatPercent(tauxReponseReel)
+  }
+  action={
+    <button
+      onClick={() => setShowResponseCount(!showResponseCount)}
+      style={{
+        marginTop: "12px",
+        padding: "7px 10px",
+        borderRadius: "999px",
+        border: `1px solid ${BRAND.border}`,
+        background: "#fff",
+        cursor: "pointer",
+        fontWeight: 700,
+        color: BRAND.redDark,
+      }}
+    >
+      {showResponseCount ? "Voir %" : "Voir chiffre"}
+    </button>
+  }
+/>
         <KpiCard title="Note moyenne" value={`${formatNote(moyenneNote)} / 5`} />
         <KpiCard title="Taux de commentaire" value={formatPercent(tauxCommentaire)} />
       </div>
@@ -963,7 +990,15 @@ const MOTIF_COLORS = [
   );
 }
 
-function KpiCard({ title, value }: { title: string; value: string }) {
+function KpiCard({
+  title,
+  value,
+  action,
+}: {
+  title: string;
+  value: string;
+  action?: React.ReactNode;
+}) {
   return (
     <div style={kpiCardStyle}>
       <div style={kpiTopBorderStyle} />
@@ -971,6 +1006,7 @@ function KpiCard({ title, value }: { title: string; value: string }) {
         {title}
       </h3>
       <p style={{ margin: 0, fontSize: "26px", fontWeight: 800, color: BRAND.dark }}>{value}</p>
+      {action}
     </div>
   );
 }
