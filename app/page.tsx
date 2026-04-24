@@ -61,7 +61,10 @@ type ChartRow = {
   moyenne: number;
   sortDate: Date;
 };
-
+type MotifPieRow = {
+  name: string;
+  value: number;
+};
 const initialStats: Stats = {
   total: 0,
   aEnvoyer: 0,
@@ -343,6 +346,52 @@ function buildChartData(
   return { data, granularityLabel };
 }
 
+function buildMotifPieData(
+  rows: FeedbackRow[],
+  periodFilter: string,
+  customStart: string,
+  customEnd: string
+): MotifPieRow[] {
+  const now = new Date();
+
+  let startDate: Date | null = null;
+  let endDate: Date | null = null;
+
+  if (periodFilter === "last30") {
+    startDate = startOfDay(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000));
+    endDate = endOfDay(now);
+  }
+
+  if (periodFilter === "custom") {
+    startDate = customStart ? startOfDay(parseInputDate(customStart) || new Date(0)) : null;
+    endDate = customEnd ? endOfDay(parseInputDate(customEnd) || now) : null;
+  }
+
+  const grouped = new Map<string, number>();
+
+  rows.forEach((row) => {
+    if (row.note === null || row.note < 1 || row.note > 3) return;
+    if (!row.motif) return;
+
+    const parsedDate = parseFrenchDateTime(row.dateFin);
+
+    if (periodFilter !== "all") {
+      if (!parsedDate) return;
+
+      const afterStart = startDate ? parsedDate >= startDate : true;
+      const beforeEnd = endDate ? parsedDate <= endDate : true;
+
+      if (!afterStart || !beforeEnd) return;
+    }
+
+    grouped.set(row.motif, (grouped.get(row.motif) || 0) + 1);
+  });
+
+  return Array.from(grouped.entries())
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
+}
+
 export default function Page() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -357,6 +406,9 @@ export default function Page() {
   const [lowNoteFilter, setLowNoteFilter] = useState("all");
   const [lowMotifFilter, setLowMotifFilter] = useState("all");
   const [highNoteFilter, setHighNoteFilter] = useState("all");
+  const [motifPeriodFilter, setMotifPeriodFilter] = useState("last30");
+  const [motifCustomStart, setMotifCustomStart] = useState("");
+  const [motifCustomEnd, setMotifCustomEnd] = useState("");
 
   useEffect(() => {
     const now = new Date();
@@ -468,6 +520,24 @@ const highScoreRows = useMemo(() => {
     return buildChartData(feedbackRows, periodFilter, customStart, customEnd);
   }, [feedbackRows, periodFilter, customStart, customEnd]);
 
+  const motifPieData = useMemo(() => {
+  return buildMotifPieData(
+    feedbackRows,
+    motifPeriodFilter,
+    motifCustomStart,
+    motifCustomEnd
+  );
+}, [feedbackRows, motifPeriodFilter, motifCustomStart, motifCustomEnd]);
+
+const MOTIF_COLORS = [
+  "#dc2626",
+  "#f59e0b",
+  "#b91c1c",
+  "#ef4444",
+  "#fb7185",
+  "#991b1b",
+  "#7f1d1d",
+];
   const COLORS = ["#6b7280", "#f59e0b", "#dc2626", "#16a34a"];
   const formatPercent = (val: number) => `${(val * 100).toFixed(1)}%`;
   const formatNote = (val: number) => val.toFixed(2);
@@ -670,6 +740,135 @@ const highScoreRows = useMemo(() => {
           </div>
         </section>
       </div>
+
+      <section style={{ ...panelStyle, marginBottom: "22px" }}>
+  <div style={panelTitleRowStyle}>
+    <h2 style={panelTitleStyle}>Motifs d’insatisfaction à prioriser</h2>
+    <span style={{ ...miniInfoStyle, background: BRAND.redSoft, color: BRAND.redDark }}>
+      Notes 1 à 3 uniquement
+    </span>
+  </div>
+
+  <div
+    style={{
+      display: "grid",
+      gridTemplateColumns: "1.2fr 0.8fr",
+      gap: "22px",
+      alignItems: "center",
+      marginTop: "18px",
+    }}
+  >
+    <div style={{ width: "100%", height: 360 }}>
+      {motifPieData.length === 0 ? (
+        <div
+          style={{
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: BRAND.subtext,
+            border: `1px dashed ${BRAND.border}`,
+            borderRadius: "16px",
+            background: "#fafafa",
+          }}
+        >
+          Aucun motif d’insatisfaction sur cette période
+        </div>
+      ) : (
+        <ResponsiveContainer>
+          <PieChart>
+            <Pie
+              data={motifPieData}
+              dataKey="value"
+              outerRadius={125}
+              label={({ value, percent }) =>
+                `${value} (${((percent || 0) * 100).toFixed(0)}%)`
+              }
+              labelLine
+            >
+              {motifPieData.map((entry, index) => (
+                <Cell
+                  key={`motif-cell-${index}`}
+                  fill={MOTIF_COLORS[index % MOTIF_COLORS.length]}
+                />
+              ))}
+            </Pie>
+
+            <Tooltip
+              formatter={(value, name) => {
+                const numericValue =
+                  typeof value === "number" ? value : Number(value ?? 0);
+                const total = motifPieData.reduce((sum, item) => sum + item.value, 0);
+                const pct =
+                  total > 0 ? ((numericValue / total) * 100).toFixed(1) : "0.0";
+                return [`${numericValue} soit ${pct}%`, String(name)];
+              }}
+            />
+
+            <Legend
+              formatter={(value) => {
+                const item = motifPieData.find((d) => d.name === value);
+                const total = motifPieData.reduce((sum, d) => sum + d.value, 0);
+                const pct =
+                  item && total > 0 ? ((item.value / total) * 100).toFixed(0) : "0";
+                return `${value} (${pct}%)`;
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+
+    <div>
+      <label style={labelStyle}>Période d’analyse</label>
+
+      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "16px" }}>
+        {[
+          { key: "last30", label: "30 derniers jours" },
+          { key: "all", label: "Tout" },
+          { key: "custom", label: "Personnalisé" },
+        ].map((item) => (
+          <button
+            key={item.key}
+            onClick={() => setMotifPeriodFilter(item.key)}
+            style={{
+              ...periodButtonStyle,
+              background: motifPeriodFilter === item.key ? BRAND.red : "#fff",
+              color: motifPeriodFilter === item.key ? "#fff" : BRAND.text,
+              borderColor: motifPeriodFilter === item.key ? BRAND.red : BRAND.border,
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {motifPeriodFilter === "custom" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div>
+            <label style={labelStyle}>Date début</label>
+            <input
+              type="date"
+              value={motifCustomStart}
+              onChange={(e) => setMotifCustomStart(e.target.value)}
+              style={selectStyle}
+            />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Date fin</label>
+            <input
+              type="date"
+              value={motifCustomEnd}
+              onChange={(e) => setMotifCustomEnd(e.target.value)}
+              style={selectStyle}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  </div>
+</section>
 
       <div
         style={{
