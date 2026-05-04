@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
   PieChart,
@@ -61,10 +62,18 @@ type ChartRow = {
   moyenne: number;
   sortDate: Date;
 };
+
+type MonthOption = {
+  key: string;
+  label: string;
+  startDate: Date;
+};
+
 type MotifPieRow = {
   name: string;
   value: number;
 };
+
 const initialStats: Stats = {
   total: 0,
   aEnvoyer: 0,
@@ -138,6 +147,13 @@ function formatMonthKey(date: Date) {
   return `${mm}/${yyyy}`;
 }
 
+function formatMonthLabel(date: Date) {
+  return date.toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function parseInputDate(value: string): Date | null {
   if (!value) return null;
   const [year, month, day] = value.split("-").map(Number);
@@ -208,10 +224,11 @@ function buildData(data: string[][]) {
     const note = parseNote(row[noteIndex] || "");
     const commentaire = normalizeText(row[commentaireIndex] || "");
     const motif = motifIndex !== -1 ? normalizeText(row[motifIndex] || "") : "";
+
     const dateFinRaw =
-  (dateIndex !== -1 ? row[dateIndex] : "") ||
-  (dateStatutIndex !== -1 ? row[dateStatutIndex] : "") ||
-  "";
+      (dateIndex !== -1 ? row[dateIndex] : "") ||
+      (dateStatutIndex !== -1 ? row[dateStatutIndex] : "") ||
+      "";
 
     stats.total++;
 
@@ -253,7 +270,8 @@ function buildChartData(
   rows: FeedbackRow[],
   periodFilter: string,
   customStart: string,
-  customEnd: string
+  customEnd: string,
+  selectedMonthKey: string
 ) {
   const now = new Date();
 
@@ -262,8 +280,11 @@ function buildChartData(
   let granularity: "day" | "month" = "day";
 
   if (periodFilter === "month") {
-    startDate = startOfMonth(now);
-    endDate = endOfMonth(now);
+    const [month, year] = selectedMonthKey.split("/").map(Number);
+    const selectedDate = month && year ? new Date(year, month - 1, 1) : now;
+
+    startDate = startOfMonth(selectedDate);
+    endDate = endOfMonth(selectedDate);
     granularity = "day";
   } else if (periodFilter === "year") {
     startDate = startOfYear(now);
@@ -277,6 +298,7 @@ function buildChartData(
 
   const filtered = rows.filter((row) => {
     if (row.note === null) return false;
+
     const parsedDate = parseFrenchDateTime(row.dateFin);
     if (!parsedDate) return false;
 
@@ -285,18 +307,6 @@ function buildChartData(
 
     return afterStart && beforeEnd;
   });
-
-  if (!filtered.length) {
-    return {
-      data: [] as ChartRow[],
-      granularityLabel:
-        periodFilter === "year"
-          ? "Mois par mois"
-          : periodFilter === "month"
-          ? "Jour par jour"
-          : "Période personnalisée",
-    };
-  }
 
   const grouped = new Map<string, { sum: number; count: number; sortDate: Date }>();
 
@@ -316,6 +326,7 @@ function buildChartData(
     }
 
     const current = grouped.get(key);
+
     if (current) {
       current.sum += row.note;
       current.count += 1;
@@ -400,6 +411,7 @@ export default function Page() {
   const [motifs, setMotifs] = useState<string[]>([]);
 
   const [periodFilter, setPeriodFilter] = useState("month");
+  const [selectedMonthKey, setSelectedMonthKey] = useState("");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
 
@@ -421,6 +433,7 @@ export default function Page() {
         monthStart.getDate()
       ).padStart(2, "0")}`
     );
+
     setCustomEnd(
       `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
         today.getDate()
@@ -466,6 +479,35 @@ export default function Page() {
     return () => clearInterval(intervalId);
   }, []);
 
+  const availableMonths = useMemo(() => {
+    const map = new Map<string, MonthOption>();
+
+    feedbackRows.forEach((row) => {
+      const parsedDate = parseFrenchDateTime(row.dateFin);
+      if (!parsedDate) return;
+
+      const key = formatMonthKey(parsedDate);
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          label: formatMonthLabel(parsedDate),
+          startDate: new Date(parsedDate.getFullYear(), parsedDate.getMonth(), 1),
+        });
+      }
+    });
+
+    return Array.from(map.values()).sort(
+      (a, b) => b.startDate.getTime() - a.startDate.getTime()
+    );
+  }, [feedbackRows]);
+
+  useEffect(() => {
+    if (!selectedMonthKey && availableMonths.length > 0) {
+      setSelectedMonthKey(availableMonths[0].key);
+    }
+  }, [availableMonths, selectedMonthKey]);
+
   const tauxReponseReel = useMemo(() => {
     const envoyes = stats.total - stats.aEnvoyer;
     return envoyes > 0 ? stats.termine / envoyes : 0;
@@ -491,56 +533,63 @@ export default function Page() {
   }, [stats]);
 
   const lowScoreRows = useMemo(() => {
-  return feedbackRows
-    .filter((row) => {
-      if (row.note === null || row.note < 1 || row.note > 3) return false;
-      const noteOk = lowNoteFilter === "all" ? true : String(row.note) === lowNoteFilter;
-      const motifOk = lowMotifFilter === "all" ? true : row.motif === lowMotifFilter;
-      return noteOk && motifOk;
-    })
-    .sort((a, b) => {
-      const dateA = parseFrenchDateTime(a.dateFin);
-      const dateB = parseFrenchDateTime(b.dateFin);
-      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
-    });
-}, [feedbackRows, lowNoteFilter, lowMotifFilter]);
+    return feedbackRows
+      .filter((row) => {
+        if (row.note === null || row.note < 1 || row.note > 3) return false;
+        const noteOk = lowNoteFilter === "all" ? true : String(row.note) === lowNoteFilter;
+        const motifOk = lowMotifFilter === "all" ? true : row.motif === lowMotifFilter;
+        return noteOk && motifOk;
+      })
+      .sort((a, b) => {
+        const dateA = parseFrenchDateTime(a.dateFin);
+        const dateB = parseFrenchDateTime(b.dateFin);
+        return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
+      });
+  }, [feedbackRows, lowNoteFilter, lowMotifFilter]);
 
-const highScoreRows = useMemo(() => {
-  return feedbackRows
-    .filter((row) => {
-      if (row.note === null || row.note < 4 || row.note > 5) return false;
-      const noteOk = highNoteFilter === "all" ? true : String(row.note) === highNoteFilter;
-      return noteOk;
-    })
-    .sort((a, b) => {
-      const dateA = parseFrenchDateTime(a.dateFin);
-      const dateB = parseFrenchDateTime(b.dateFin);
-      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
-    });
-}, [feedbackRows, highNoteFilter]);
+  const highScoreRows = useMemo(() => {
+    return feedbackRows
+      .filter((row) => {
+        if (row.note === null || row.note < 4 || row.note > 5) return false;
+        const noteOk = highNoteFilter === "all" ? true : String(row.note) === highNoteFilter;
+        return noteOk;
+      })
+      .sort((a, b) => {
+        const dateA = parseFrenchDateTime(a.dateFin);
+        const dateB = parseFrenchDateTime(b.dateFin);
+        return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
+      });
+  }, [feedbackRows, highNoteFilter]);
 
   const chartResult = useMemo(() => {
-    return buildChartData(feedbackRows, periodFilter, customStart, customEnd);
-  }, [feedbackRows, periodFilter, customStart, customEnd]);
+    return buildChartData(
+      feedbackRows,
+      periodFilter,
+      customStart,
+      customEnd,
+      selectedMonthKey
+    );
+  }, [feedbackRows, periodFilter, customStart, customEnd, selectedMonthKey]);
 
   const motifPieData = useMemo(() => {
-  return buildMotifPieData(
-    feedbackRows,
-    motifPeriodFilter,
-    motifCustomStart,
-    motifCustomEnd
-  );
-}, [feedbackRows, motifPeriodFilter, motifCustomStart, motifCustomEnd]);
+    return buildMotifPieData(
+      feedbackRows,
+      motifPeriodFilter,
+      motifCustomStart,
+      motifCustomEnd
+    );
+  }, [feedbackRows, motifPeriodFilter, motifCustomStart, motifCustomEnd]);
 
-const MOTIF_COLORS = [
-  "#dc2626",
-  "#f59e0b",
-  "#b91c1c",
-  "#ef4444",
-  "#fb7185",
-  "#991b1b",
-  "#7f1d1d",
-];
+  const MOTIF_COLORS = [
+    "#dc2626",
+    "#f59e0b",
+    "#b91c1c",
+    "#ef4444",
+    "#fb7185",
+    "#991b1b",
+    "#7f1d1d",
+  ];
+
   const COLORS = ["#6b7280", "#f59e0b", "#dc2626", "#16a34a"];
   const formatPercent = (val: number) => `${(val * 100).toFixed(1)}%`;
   const formatNote = (val: number) => val.toFixed(2);
@@ -599,31 +648,33 @@ const MOTIF_COLORS = [
         }}
       >
         <KpiCard title="Total enquêtes" value={String(stats.total)} />
+
         <KpiCard
-  title="Taux de réponse réel"
-  value={
-    showResponseCount
-      ? `${stats.termine} / ${envoyesReels}`
-      : formatPercent(tauxReponseReel)
-  }
-  action={
-    <button
-      onClick={() => setShowResponseCount(!showResponseCount)}
-      style={{
-        marginTop: "12px",
-        padding: "7px 10px",
-        borderRadius: "999px",
-        border: `1px solid ${BRAND.border}`,
-        background: "#fff",
-        cursor: "pointer",
-        fontWeight: 700,
-        color: BRAND.redDark,
-      }}
-    >
-      {showResponseCount ? "Voir %" : "Voir chiffre"}
-    </button>
-  }
-/>
+          title="Taux de réponse réel"
+          value={
+            showResponseCount
+              ? `${stats.termine} / ${envoyesReels}`
+              : formatPercent(tauxReponseReel)
+          }
+          action={
+            <button
+              onClick={() => setShowResponseCount(!showResponseCount)}
+              style={{
+                marginTop: "12px",
+                padding: "7px 10px",
+                borderRadius: "999px",
+                border: `1px solid ${BRAND.border}`,
+                background: "#fff",
+                cursor: "pointer",
+                fontWeight: 700,
+                color: BRAND.redDark,
+              }}
+            >
+              {showResponseCount ? "Voir %" : "Voir chiffre"}
+            </button>
+          }
+        />
+
         <KpiCard title="Note moyenne" value={`${formatNote(moyenneNote)} / 5`} />
         <KpiCard title="Taux de commentaire" value={formatPercent(tauxCommentaire)} />
       </div>
@@ -658,14 +709,16 @@ const MOTIF_COLORS = [
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
+
                 <Tooltip
-  formatter={(value, name) => {
-    const numericValue = typeof value === "number" ? value : Number(value ?? 0);
-    const total = pieData.reduce((sum, item) => sum + item.value, 0);
-    const pct = total > 0 ? ((numericValue / total) * 100).toFixed(1) : "0.0";
-    return [`${numericValue} soit ${pct}%`, String(name)];
-  }}
-/>
+                  formatter={(value, name) => {
+                    const numericValue = typeof value === "number" ? value : Number(value ?? 0);
+                    const total = pieData.reduce((sum, item) => sum + item.value, 0);
+                    const pct = total > 0 ? ((numericValue / total) * 100).toFixed(1) : "0.0";
+                    return [`${numericValue} soit ${pct}%`, String(name)];
+                  }}
+                />
+
                 <Legend
                   formatter={(value) => {
                     const item = pieData.find((d) => d.name === value);
@@ -705,6 +758,23 @@ const MOTIF_COLORS = [
               </button>
             ))}
           </div>
+
+          {periodFilter === "month" && availableMonths.length > 0 && (
+            <div style={{ marginBottom: "14px" }}>
+              <label style={labelStyle}>Mois à afficher</label>
+              <select
+                value={selectedMonthKey}
+                onChange={(e) => setSelectedMonthKey(e.target.value)}
+                style={selectStyle}
+              >
+                {availableMonths.map((month) => (
+                  <option key={month.key} value={month.key}>
+                    {month.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {periodFilter === "custom" && (
             <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
@@ -748,9 +818,16 @@ const MOTIF_COLORS = [
               </div>
             ) : (
               <ResponsiveContainer>
-                <LineChart data={chartResult.data}>
+                <LineChart data={chartResult.data} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#eceff3" />
-                  <XAxis dataKey="label" tick={{ fill: BRAND.subtext, fontSize: 12 }} />
+                  <XAxis
+                    dataKey="label"
+                    interval={0}
+                    tick={{ fill: BRAND.subtext, fontSize: 12 }}
+                    angle={-35}
+                    textAnchor="end"
+                    height={65}
+                  />
                   <YAxis domain={[0, 5]} tick={{ fill: BRAND.subtext, fontSize: 12 }} />
                   <Tooltip />
                   <Line
@@ -769,133 +846,133 @@ const MOTIF_COLORS = [
       </div>
 
       <section style={{ ...panelStyle, marginBottom: "22px" }}>
-  <div style={panelTitleRowStyle}>
-    <h2 style={panelTitleStyle}>Motifs d’insatisfaction à prioriser</h2>
-    <span style={{ ...miniInfoStyle, background: BRAND.redSoft, color: BRAND.redDark }}>
-      Notes 1 à 3 uniquement
-    </span>
-  </div>
+        <div style={panelTitleRowStyle}>
+          <h2 style={panelTitleStyle}>Motifs d’insatisfaction à prioriser</h2>
+          <span style={{ ...miniInfoStyle, background: BRAND.redSoft, color: BRAND.redDark }}>
+            Notes 1 à 3 uniquement
+          </span>
+        </div>
 
-  <div
-    style={{
-      display: "grid",
-      gridTemplateColumns: "1.2fr 0.8fr",
-      gap: "22px",
-      alignItems: "center",
-      marginTop: "18px",
-    }}
-  >
-    <div style={{ width: "100%", height: 360 }}>
-      {motifPieData.length === 0 ? (
         <div
           style={{
-            height: "100%",
-            display: "flex",
+            display: "grid",
+            gridTemplateColumns: "1.2fr 0.8fr",
+            gap: "22px",
             alignItems: "center",
-            justifyContent: "center",
-            color: BRAND.subtext,
-            border: `1px dashed ${BRAND.border}`,
-            borderRadius: "16px",
-            background: "#fafafa",
+            marginTop: "18px",
           }}
         >
-          Aucun motif d’insatisfaction sur cette période
-        </div>
-      ) : (
-        <ResponsiveContainer>
-          <PieChart>
-            <Pie
-              data={motifPieData}
-              dataKey="value"
-              outerRadius={125}
-              label={({ value, percent }) =>
-                `${value} (${((percent || 0) * 100).toFixed(0)}%)`
-              }
-              labelLine
-            >
-              {motifPieData.map((entry, index) => (
-                <Cell
-                  key={`motif-cell-${index}`}
-                  fill={MOTIF_COLORS[index % MOTIF_COLORS.length]}
-                />
+          <div style={{ width: "100%", height: 360 }}>
+            {motifPieData.length === 0 ? (
+              <div
+                style={{
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: BRAND.subtext,
+                  border: `1px dashed ${BRAND.border}`,
+                  borderRadius: "16px",
+                  background: "#fafafa",
+                }}
+              >
+                Aucun motif d’insatisfaction sur cette période
+              </div>
+            ) : (
+              <ResponsiveContainer>
+                <PieChart>
+                  <Pie
+                    data={motifPieData}
+                    dataKey="value"
+                    outerRadius={125}
+                    label={({ value, percent }) =>
+                      `${value} (${((percent || 0) * 100).toFixed(0)}%)`
+                    }
+                    labelLine
+                  >
+                    {motifPieData.map((entry, index) => (
+                      <Cell
+                        key={`motif-cell-${index}`}
+                        fill={MOTIF_COLORS[index % MOTIF_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+
+                  <Tooltip
+                    formatter={(value, name) => {
+                      const numericValue =
+                        typeof value === "number" ? value : Number(value ?? 0);
+                      const total = motifPieData.reduce((sum, item) => sum + item.value, 0);
+                      const pct =
+                        total > 0 ? ((numericValue / total) * 100).toFixed(1) : "0.0";
+                      return [`${numericValue} soit ${pct}%`, String(name)];
+                    }}
+                  />
+
+                  <Legend
+                    formatter={(value) => {
+                      const item = motifPieData.find((d) => d.name === value);
+                      const total = motifPieData.reduce((sum, d) => sum + d.value, 0);
+                      const pct =
+                        item && total > 0 ? ((item.value / total) * 100).toFixed(0) : "0";
+                      return `${value} (${pct}%)`;
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div>
+            <label style={labelStyle}>Période d’analyse</label>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "16px" }}>
+              {[
+                { key: "last30", label: "30 derniers jours" },
+                { key: "all", label: "Tout" },
+                { key: "custom", label: "Personnalisé" },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setMotifPeriodFilter(item.key)}
+                  style={{
+                    ...periodButtonStyle,
+                    background: motifPeriodFilter === item.key ? BRAND.red : "#fff",
+                    color: motifPeriodFilter === item.key ? "#fff" : BRAND.text,
+                    borderColor: motifPeriodFilter === item.key ? BRAND.red : BRAND.border,
+                  }}
+                >
+                  {item.label}
+                </button>
               ))}
-            </Pie>
+            </div>
 
-            <Tooltip
-              formatter={(value, name) => {
-                const numericValue =
-                  typeof value === "number" ? value : Number(value ?? 0);
-                const total = motifPieData.reduce((sum, item) => sum + item.value, 0);
-                const pct =
-                  total > 0 ? ((numericValue / total) * 100).toFixed(1) : "0.0";
-                return [`${numericValue} soit ${pct}%`, String(name)];
-              }}
-            />
+            {motifPeriodFilter === "custom" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                <div>
+                  <label style={labelStyle}>Date début</label>
+                  <input
+                    type="date"
+                    value={motifCustomStart}
+                    onChange={(e) => setMotifCustomStart(e.target.value)}
+                    style={selectStyle}
+                  />
+                </div>
 
-            <Legend
-              formatter={(value) => {
-                const item = motifPieData.find((d) => d.name === value);
-                const total = motifPieData.reduce((sum, d) => sum + d.value, 0);
-                const pct =
-                  item && total > 0 ? ((item.value / total) * 100).toFixed(0) : "0";
-                return `${value} (${pct}%)`;
-              }}
-            />
-          </PieChart>
-        </ResponsiveContainer>
-      )}
-    </div>
-
-    <div>
-      <label style={labelStyle}>Période d’analyse</label>
-
-      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "16px" }}>
-        {[
-          { key: "last30", label: "30 derniers jours" },
-          { key: "all", label: "Tout" },
-          { key: "custom", label: "Personnalisé" },
-        ].map((item) => (
-          <button
-            key={item.key}
-            onClick={() => setMotifPeriodFilter(item.key)}
-            style={{
-              ...periodButtonStyle,
-              background: motifPeriodFilter === item.key ? BRAND.red : "#fff",
-              color: motifPeriodFilter === item.key ? "#fff" : BRAND.text,
-              borderColor: motifPeriodFilter === item.key ? BRAND.red : BRAND.border,
-            }}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-
-      {motifPeriodFilter === "custom" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          <div>
-            <label style={labelStyle}>Date début</label>
-            <input
-              type="date"
-              value={motifCustomStart}
-              onChange={(e) => setMotifCustomStart(e.target.value)}
-              style={selectStyle}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Date fin</label>
-            <input
-              type="date"
-              value={motifCustomEnd}
-              onChange={(e) => setMotifCustomEnd(e.target.value)}
-              style={selectStyle}
-            />
+                <div>
+                  <label style={labelStyle}>Date fin</label>
+                  <input
+                    type="date"
+                    value={motifCustomEnd}
+                    onChange={(e) => setMotifCustomEnd(e.target.value)}
+                    style={selectStyle}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      )}
-    </div>
-  </div>
-</section>
+      </section>
 
       <div
         style={{
@@ -1041,6 +1118,7 @@ function ScrollableFeedbackTable({
             {showMotif && <th style={{ ...thStyle, background: "#fff" }}>Motif</th>}
           </tr>
         </thead>
+
         <tbody>
           {rows.length === 0 ? (
             <tr>
