@@ -630,6 +630,8 @@ export default function Page() {
         background: BRAND.bg,
         minHeight: "100vh",
         color: BRAND.text,
+        overflowX: "hidden",
+        maxWidth: "100vw",
       }}
     >
       <div
@@ -637,6 +639,7 @@ export default function Page() {
           ...headerStyle,
           flexDirection: isMobile ? "column" : "row",
           alignItems: isMobile ? "flex-start" : "center",
+          padding: isMobile ? "22px" : "24px 26px",
         }}
       >
         <div>
@@ -644,7 +647,7 @@ export default function Page() {
           <h1
             style={{
               margin: "10px 0 6px 0",
-              fontSize: isMobile ? "26px" : "34px",
+              fontSize: isMobile ? "28px" : "34px",
               lineHeight: 1.1,
             }}
           >
@@ -664,8 +667,8 @@ export default function Page() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(220px, 1fr))",
-          gap: "18px",
+          gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
+          gap: isMobile ? "14px" : "18px",
           marginBottom: "22px",
         }}
       >
@@ -710,20 +713,23 @@ export default function Page() {
           alignItems: "stretch",
         }}
       >
-        <section style={panelStyle}>
+        <section style={{ ...panelStyle, padding: isMobile ? "20px" : "22px" }}>
           <div style={panelTitleRowStyle}>
             <h2 style={panelTitleStyle}>Suivi des enquêtes envoyées</h2>
           </div>
 
-          <div style={{ width: "100%", height: isMobile ? 300 : 360 }}>
+          <div style={{ width: "100%", height: isMobile ? 360 : 360 }}>
             <ResponsiveContainer>
-              <PieChart>
+              <PieChart margin={{ top: 10, right: 10, bottom: isMobile ? 70 : 25, left: 10 }}>
                 <Pie
                   data={pieData}
                   dataKey="value"
-                  outerRadius={isMobile ? 90 : 124}
-                  label={({ value, percent }) =>
-                    `${value} (${((percent || 0) * 100).toFixed(0)}%)`
+                  outerRadius={isMobile ? 82 : 124}
+                  label={
+                    isMobile
+                      ? false
+                      : ({ value, percent }) =>
+                          `${value} (${((percent || 0) * 100).toFixed(0)}%)`
                   }
                   labelLine={!isMobile}
                 >
@@ -742,6 +748,15 @@ export default function Page() {
                 />
 
                 <Legend
+                  verticalAlign="bottom"
+                  align="center"
+                  iconSize={10}
+                  wrapperStyle={{
+                    fontSize: isMobile ? 12 : 14,
+                    lineHeight: "20px",
+                    paddingTop: "12px",
+                    maxWidth: "100%",
+                  }}
                   formatter={(value) => {
                     const item = pieData.find((d) => d.name === value);
                     const total = pieData.reduce((sum, d) => sum + d.value, 0);
@@ -754,7 +769,7 @@ export default function Page() {
           </div>
         </section>
 
-        <section style={panelStyle}>
+        <section style={{ ...panelStyle, padding: isMobile ? "20px" : "22px" }}>
           <div style={panelTitleRowStyle}>
             <h2 style={panelTitleStyle}>Évolution de la satisfaction</h2>
             <span style={miniInfoStyle}>{chartResult.granularityLabel}</span>
@@ -831,7 +846,7 @@ export default function Page() {
             </div>
           )}
 
-          <div style={{ width: "100%", height: isMobile ? 320 : 360 }}>
+          <div style={{ width: "100%", height: isMobile ? 330 : 360 }}>
             {chartResult.data.length === 0 ? (
               <div
                 style={{
@@ -851,7 +866,7 @@ export default function Page() {
               </div>
             ) : (
               <ResponsiveContainer>
-                <LineChart data={chartResult.data} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
+                <LineChart data={chartResult.data} margin={{ top: 10, right: 14, left: -18, bottom: 25 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#eceff3" />
                   <XAxis
                     dataKey="label"
@@ -878,7 +893,7 @@ export default function Page() {
         </section>
       </div>
 
-      <section style={{ ...panelStyle, marginBottom: "22px" }}>
+      <section style={{ ...panelStyle, marginBottom: "22px", padding: isMobile ? "20px" : "22px" }}>
         <div style={panelTitleRowStyle}>
           <h2 style={panelTitleStyle}>Motifs d’insatisfaction à prioriser</h2>
           <span style={{ ...miniInfoStyle, background: BRAND.redSoft, color: BRAND.redDark }}>
@@ -895,7 +910,7 @@ export default function Page() {
             marginTop: "18px",
           }}
         >
-          <div style={{ width: "100%", height: isMobile ? 300 : 360 }}>
+          <div style={{ width: "100%", height: isMobile ? 390 : 360 }}>
             {motifPieData.length === 0 ? (
               <div
                 style={{
@@ -915,13 +930,16 @@ export default function Page() {
               </div>
             ) : (
               <ResponsiveContainer>
-                <PieChart>
+                <PieChart margin={{ top: 10, right: 10, bottom: isMobile ? 100 : 25, left: 10 }}>
                   <Pie
                     data={motifPieData}
                     dataKey="value"
-                    outerRadius={isMobile ? 90 : 125}
-                    label={({ value, percent }) =>
-                      `${value} (${((percent || 0) * 100).toFixed(0)}%)`
+                    outerRadius={isMobile ? 82 : 125}
+                    label={
+                      isMobile
+                        ? false
+                        : ({ value, percent }) =>
+                            `${value} (${((percent || 0) * 100).toFixed(0)}%)`
                     }
                     labelLine={!isMobile}
                   >
@@ -945,6 +963,15 @@ export default function Page() {
                   />
 
                   <Legend
+                    verticalAlign="bottom"
+                    align="center"
+                    iconSize={10}
+                    wrapperStyle={{
+                      fontSize: isMobile ? 12 : 14,
+                      lineHeight: "20px",
+                      paddingTop: "12px",
+                      maxWidth: "100%",
+                    }}
                     formatter={(value) => {
                       const item = motifPieData.find((d) => d.name === value);
                       const total = motifPieData.reduce((sum, d) => sum + d.value, 0);
@@ -1026,6 +1053,7 @@ export default function Page() {
         <section
           style={{
             ...panelStyle,
+            padding: isMobile ? "20px" : "22px",
             borderTop: `6px solid ${BRAND.red}`,
             background: BRAND.card,
           }}
@@ -1075,12 +1103,13 @@ export default function Page() {
             </div>
           </div>
 
-          <ScrollableFeedbackTable rows={lowScoreRows} showMotif variant="danger" />
+          <ScrollableFeedbackTable rows={lowScoreRows} showMotif variant="danger" isMobile={isMobile} />
         </section>
 
         <section
           style={{
             ...panelStyle,
+            padding: isMobile ? "20px" : "22px",
             borderTop: `6px solid ${BRAND.green}`,
             background: BRAND.card,
           }}
@@ -1110,7 +1139,7 @@ export default function Page() {
             </div>
           </div>
 
-          <ScrollableFeedbackTable rows={highScoreRows} showMotif={false} variant="success" />
+          <ScrollableFeedbackTable rows={highScoreRows} showMotif={false} variant="success" isMobile={isMobile} />
         </section>
       </div>
     </main>
@@ -1142,10 +1171,12 @@ function ScrollableFeedbackTable({
   rows,
   showMotif,
   variant,
+  isMobile,
 }: {
   rows: FeedbackRow[];
   showMotif: boolean;
   variant: "danger" | "success";
+  isMobile: boolean;
 }) {
   const rowBg = variant === "danger" ? "#fff8f8" : "#f8fff9";
 
@@ -1158,9 +1189,19 @@ function ScrollableFeedbackTable({
         overflowX: "auto",
         borderRadius: "14px",
         border: `1px solid ${BRAND.border}`,
+        WebkitOverflowScrolling: "touch",
+        maxWidth: "100%",
       }}
     >
-      <table style={{ width: "100%", minWidth: "520px", borderCollapse: "separate", borderSpacing: 0, fontSize: "14px" }}>
+      <table
+        style={{
+          width: "100%",
+          minWidth: isMobile ? (showMotif ? "620px" : "460px") : "100%",
+          borderCollapse: "separate",
+          borderSpacing: 0,
+          fontSize: "14px",
+        }}
+      >
         <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
           <tr>
             <th style={{ ...thStyle, background: "#fff" }}>Date</th>
@@ -1199,7 +1240,6 @@ function ScrollableFeedbackTable({
 const headerStyle: React.CSSProperties = {
   background: BRAND.card,
   borderRadius: "24px",
-  padding: "24px 26px",
   marginBottom: "22px",
   boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
   borderTop: `6px solid ${BRAND.red}`,
@@ -1258,9 +1298,9 @@ const kpiTopBorderStyle: React.CSSProperties = {
 
 const panelStyle: React.CSSProperties = {
   background: BRAND.card,
-  padding: "22px",
   borderRadius: "22px",
   boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
+  overflow: "hidden",
 };
 
 const panelTitleRowStyle: React.CSSProperties = {
