@@ -423,6 +423,16 @@ export default function Page() {
   const [motifCustomStart, setMotifCustomStart] = useState("");
   const [motifCustomEnd, setMotifCustomEnd] = useState("");
 
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
+    checkMobile();
+
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
   useEffect(() => {
     const now = new Date();
     const monthStart = startOfMonth(now);
@@ -615,17 +625,29 @@ export default function Page() {
   return (
     <main
       style={{
-        padding: "28px",
+        padding: isMobile ? "14px" : "28px",
         fontFamily: "Arial, sans-serif",
         background: BRAND.bg,
         minHeight: "100vh",
         color: BRAND.text,
       }}
     >
-      <div style={headerStyle}>
+      <div
+        style={{
+          ...headerStyle,
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "flex-start" : "center",
+        }}
+      >
         <div>
           <div style={brandBadgeStyle}>DISTRItec · Satisfaction client</div>
-          <h1 style={{ margin: "10px 0 6px 0", fontSize: "34px", lineHeight: 1.1 }}>
+          <h1
+            style={{
+              margin: "10px 0 6px 0",
+              fontSize: isMobile ? "26px" : "34px",
+              lineHeight: 1.1,
+            }}
+          >
             Dashboard Satisfaction
           </h1>
           <p style={{ margin: 0, color: BRAND.subtext, fontSize: "15px" }}>
@@ -642,7 +664,7 @@ export default function Page() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(220px, 1fr))",
+          gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(220px, 1fr))",
           gap: "18px",
           marginBottom: "22px",
         }}
@@ -682,7 +704,7 @@ export default function Page() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "0.95fr 1.35fr",
+          gridTemplateColumns: isMobile ? "1fr" : "0.95fr 1.35fr",
           gap: "22px",
           marginBottom: "22px",
           alignItems: "stretch",
@@ -693,17 +715,17 @@ export default function Page() {
             <h2 style={panelTitleStyle}>Suivi des enquêtes envoyées</h2>
           </div>
 
-          <div style={{ width: "100%", height: 360 }}>
+          <div style={{ width: "100%", height: isMobile ? 300 : 360 }}>
             <ResponsiveContainer>
               <PieChart>
                 <Pie
                   data={pieData}
                   dataKey="value"
-                  outerRadius={124}
+                  outerRadius={isMobile ? 90 : 124}
                   label={({ value, percent }) =>
                     `${value} (${((percent || 0) * 100).toFixed(0)}%)`
                   }
-                  labelLine={true}
+                  labelLine={!isMobile}
                 >
                   {pieData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -765,7 +787,10 @@ export default function Page() {
               <select
                 value={selectedMonthKey}
                 onChange={(e) => setSelectedMonthKey(e.target.value)}
-                style={selectStyle}
+                style={{
+                  ...selectStyle,
+                  width: isMobile ? "100%" : undefined,
+                }}
               >
                 {availableMonths.map((month) => (
                   <option key={month.key} value={month.key}>
@@ -778,29 +803,35 @@ export default function Page() {
 
           {periodFilter === "custom" && (
             <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
-              <div>
+              <div style={{ width: isMobile ? "100%" : undefined }}>
                 <label style={labelStyle}>Date début</label>
                 <input
                   type="date"
                   value={customStart}
                   onChange={(e) => setCustomStart(e.target.value)}
-                  style={selectStyle}
+                  style={{
+                    ...selectStyle,
+                    width: isMobile ? "100%" : undefined,
+                  }}
                 />
               </div>
 
-              <div>
+              <div style={{ width: isMobile ? "100%" : undefined }}>
                 <label style={labelStyle}>Date fin</label>
                 <input
                   type="date"
                   value={customEnd}
                   onChange={(e) => setCustomEnd(e.target.value)}
-                  style={selectStyle}
+                  style={{
+                    ...selectStyle,
+                    width: isMobile ? "100%" : undefined,
+                  }}
                 />
               </div>
             </div>
           )}
 
-          <div style={{ width: "100%", height: 360 }}>
+          <div style={{ width: "100%", height: isMobile ? 320 : 360 }}>
             {chartResult.data.length === 0 ? (
               <div
                 style={{
@@ -812,6 +843,8 @@ export default function Page() {
                   border: `1px dashed ${BRAND.border}`,
                   borderRadius: "16px",
                   background: "#fafafa",
+                  textAlign: "center",
+                  padding: "16px",
                 }}
               >
                 Aucune note terminée sur cette période
@@ -823,10 +856,10 @@ export default function Page() {
                   <XAxis
                     dataKey="label"
                     interval={0}
-                    tick={{ fill: BRAND.subtext, fontSize: 12 }}
-                    angle={-35}
+                    tick={{ fill: BRAND.subtext, fontSize: isMobile ? 10 : 12 }}
+                    angle={isMobile ? -45 : -35}
                     textAnchor="end"
-                    height={65}
+                    height={isMobile ? 75 : 65}
                   />
                   <YAxis domain={[0, 5]} tick={{ fill: BRAND.subtext, fontSize: 12 }} />
                   <Tooltip />
@@ -835,7 +868,7 @@ export default function Page() {
                     dataKey="moyenne"
                     stroke={BRAND.red}
                     strokeWidth={3}
-                    dot={{ r: 4 }}
+                    dot={{ r: isMobile ? 3 : 4 }}
                     activeDot={{ r: 6 }}
                   />
                 </LineChart>
@@ -856,13 +889,13 @@ export default function Page() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1.2fr 0.8fr",
+            gridTemplateColumns: isMobile ? "1fr" : "1.2fr 0.8fr",
             gap: "22px",
             alignItems: "center",
             marginTop: "18px",
           }}
         >
-          <div style={{ width: "100%", height: 360 }}>
+          <div style={{ width: "100%", height: isMobile ? 300 : 360 }}>
             {motifPieData.length === 0 ? (
               <div
                 style={{
@@ -874,6 +907,8 @@ export default function Page() {
                   border: `1px dashed ${BRAND.border}`,
                   borderRadius: "16px",
                   background: "#fafafa",
+                  textAlign: "center",
+                  padding: "16px",
                 }}
               >
                 Aucun motif d’insatisfaction sur cette période
@@ -884,11 +919,11 @@ export default function Page() {
                   <Pie
                     data={motifPieData}
                     dataKey="value"
-                    outerRadius={125}
+                    outerRadius={isMobile ? 90 : 125}
                     label={({ value, percent }) =>
                       `${value} (${((percent || 0) * 100).toFixed(0)}%)`
                     }
-                    labelLine
+                    labelLine={!isMobile}
                   >
                     {motifPieData.map((entry, index) => (
                       <Cell
@@ -955,7 +990,10 @@ export default function Page() {
                     type="date"
                     value={motifCustomStart}
                     onChange={(e) => setMotifCustomStart(e.target.value)}
-                    style={selectStyle}
+                    style={{
+                      ...selectStyle,
+                      width: isMobile ? "100%" : undefined,
+                    }}
                   />
                 </div>
 
@@ -965,7 +1003,10 @@ export default function Page() {
                     type="date"
                     value={motifCustomEnd}
                     onChange={(e) => setMotifCustomEnd(e.target.value)}
-                    style={selectStyle}
+                    style={{
+                      ...selectStyle,
+                      width: isMobile ? "100%" : undefined,
+                    }}
                   />
                 </div>
               </div>
@@ -977,7 +1018,7 @@ export default function Page() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1fr",
+          gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
           gap: "22px",
           alignItems: "start",
         }}
@@ -997,12 +1038,15 @@ export default function Page() {
           </div>
 
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginTop: "16px", marginBottom: "14px" }}>
-            <div>
+            <div style={{ width: isMobile ? "100%" : undefined }}>
               <label style={labelStyle}>Filtre note</label>
               <select
                 value={lowNoteFilter}
                 onChange={(e) => setLowNoteFilter(e.target.value)}
-                style={compactSelectStyle}
+                style={{
+                  ...compactSelectStyle,
+                  width: isMobile ? "100%" : undefined,
+                }}
               >
                 <option value="all">Toutes</option>
                 <option value="1">Note 1</option>
@@ -1011,12 +1055,15 @@ export default function Page() {
               </select>
             </div>
 
-            <div>
+            <div style={{ width: isMobile ? "100%" : undefined }}>
               <label style={labelStyle}>Motif d&apos;insatisfaction</label>
               <select
                 value={lowMotifFilter}
                 onChange={(e) => setLowMotifFilter(e.target.value)}
-                style={compactSelectStyle}
+                style={{
+                  ...compactSelectStyle,
+                  width: isMobile ? "100%" : undefined,
+                }}
               >
                 <option value="all">Tous les motifs</option>
                 {motifs.map((motif) => (
@@ -1046,12 +1093,15 @@ export default function Page() {
           </div>
 
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginTop: "16px", marginBottom: "14px" }}>
-            <div>
+            <div style={{ width: isMobile ? "100%" : undefined }}>
               <label style={labelStyle}>Filtre note</label>
               <select
                 value={highNoteFilter}
                 onChange={(e) => setHighNoteFilter(e.target.value)}
-                style={compactSelectStyle}
+                style={{
+                  ...compactSelectStyle,
+                  width: isMobile ? "100%" : undefined,
+                }}
               >
                 <option value="all">Toutes</option>
                 <option value="4">Note 4</option>
@@ -1105,11 +1155,12 @@ function ScrollableFeedbackTable({
         marginTop: "8px",
         maxHeight: "610px",
         overflowY: "auto",
+        overflowX: "auto",
         borderRadius: "14px",
         border: `1px solid ${BRAND.border}`,
       }}
     >
-      <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "14px" }}>
+      <table style={{ width: "100%", minWidth: "520px", borderCollapse: "separate", borderSpacing: 0, fontSize: "14px" }}>
         <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
           <tr>
             <th style={{ ...thStyle, background: "#fff" }}>Date</th>
@@ -1153,7 +1204,6 @@ const headerStyle: React.CSSProperties = {
   boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
   borderTop: `6px solid ${BRAND.red}`,
   display: "flex",
-  alignItems: "center",
   justifyContent: "space-between",
   gap: "20px",
 };
@@ -1252,6 +1302,7 @@ const selectStyle: React.CSSProperties = {
   background: "white",
   color: BRAND.text,
   outline: "none",
+  boxSizing: "border-box",
 };
 
 const compactSelectStyle: React.CSSProperties = {
@@ -1262,6 +1313,7 @@ const compactSelectStyle: React.CSSProperties = {
   background: "white",
   color: BRAND.text,
   outline: "none",
+  boxSizing: "border-box",
 };
 
 const periodButtonStyle: React.CSSProperties = {
